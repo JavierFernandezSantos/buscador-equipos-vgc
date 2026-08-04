@@ -20,7 +20,7 @@ with col_left:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 with col_title:
     st.title("Comparador y Gestor de Equipos VGC")
-    st.markdown("Busca coincidencia por **Pokémon (6 Slots), Objetos y Varios Ataques**, o añade nuevos equipos vía Pokepaste.")
+    st.markdown("Busca coincidencia estructurada por **6 Pokémon con sus 4 Ataques**, o añade nuevos equipos vía Pokepaste.")
 with col_right:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 
@@ -212,142 +212,153 @@ with tab_buscar:
     regulacion_sel = st.selectbox("📌 Filtrar por Regulación / Pestaña:", ["Todas las Regulaciones (M-B)"] + pestañas_disponibles)
 
     todos_pokes_set = set()
+    todos_movs_set = set()
+
     for eq in equipos_db:
         for item in eq['integrantes_excel']:
             todos_pokes_set.add(item['pokemon'])
-    lista_todos_pokes = ["-- Ninguno / Seleccionar --"] + sorted(list(todos_pokes_set))
+            
+    lista_todos_pokes = ["-- Ninguno --"] + sorted(list(todos_pokes_set))
+    
+    # Extraer también movimientos de Pokepastes si están precargados
+    for eq in equipos_db:
+        if eq['pokepaste']:
+            parsed = parsear_pokepaste_estricto(eq['pokepaste'])
+            if parsed:
+                for item in parsed:
+                    for m in item.get('movimientos', []):
+                        todos_movs_set.add(m)
 
-    modo = st.radio("Selecciona el método de búsqueda de Pokémon:", ["📋 6 Desplegables de Pokémon (Slots 1 a 6)", "✍️ Pegar texto directo"], horizontal=True)
+    lista_todos_movs = ["-- Ninguno --"] + sorted(list(todos_movs_set))
 
-    pokes_usuario = []
+    st.markdown("### 🔴 Selección de Pokémon y Ataques (Slots 1 al 6)")
 
-    if "6 Desplegables" in modo:
-        st.markdown("##### 🔴 Elige tus Pokémon en las 6 casillas:")
-        col1, col2, col3 = st.columns(3)
-        col4, col5, col6 = st.columns(3)
+    def render_slot_box(slot_num):
+        with st.container(border=True):
+            st.markdown(f"**Slot {slot_num}**")
+            poke_selected = st.selectbox("Pokémon:", options=lista_todos_pokes, key=f"s_{slot_num}_poke", label_visibility="collapsed")
+            
+            st.caption("Ataques:")
+            m1 = st.selectbox("Ataque 1", options=lista_todos_movs, key=f"s_{slot_num}_m1", label_visibility="collapsed")
+            m2 = st.selectbox("Ataque 2", options=lista_todos_movs, key=f"s_{slot_num}_m2", label_visibility="collapsed")
+            m3 = st.selectbox("Ataque 3", options=lista_todos_movs, key=f"s_{slot_num}_m3", label_visibility="collapsed")
+            m4 = st.selectbox("Ataque 4", options=lista_todos_movs, key=f"s_{slot_num}_m4", label_visibility="collapsed")
 
-        with col1:
-            p1 = st.selectbox("Pokémon 1:", options=lista_todos_pokes, key="slot_1")
-        with col2:
-            p2 = st.selectbox("Pokémon 2:", options=lista_todos_pokes, key="slot_2")
-        with col3:
-            p3 = st.selectbox("Pokémon 3:", options=lista_todos_pokes, key="slot_3")
+            movs = [m for m in [m1, m2, m3, m4] if m and m != "-- Ninguno --"]
+            return {
+                'pokemon': None if poke_selected == "-- Ninguno --" else poke_selected,
+                'movimientos': movs
+            }
 
-        with col4:
-            p4 = st.selectbox("Pokémon 4:", options=lista_todos_pokes, key="slot_4")
-        with col5:
-            p5 = st.selectbox("Pokémon 5:", options=lista_todos_pokes, key="slot_5")
-        with col6:
-            p6 = st.selectbox("Pokémon 6:", options=lista_todos_pokes, key="slot_6")
+    # Renderizar los 6 slots en 2 filas de 3 columnas
+    col1, col2, col3 = st.columns(3)
+    col4, col5, col6 = st.columns(3)
 
-        for p in [p1, p2, p3, p4, p5, p6]:
-            if p and p != "-- Ninguno / Seleccionar --":
-                pokes_usuario.append(p)
+    query_slots = []
+    with col1:
+        query_slots.append(render_slot_box(1))
+    with col2:
+        query_slots.append(render_slot_box(2))
+    with col3:
+        query_slots.append(render_slot_box(3))
 
-    else:
-        user_text = st.text_area("Pega aquí tu equipo o nombres (un Pokémon por línea):", height=140, placeholder="Incineroar\nArchaludon\nPelipper")
-        if user_text:
-            for l in user_text.split('\n'):
-                linea = l.strip()
-                if not linea or linea.startswith('-') or linea.startswith('EVs:') or linea.startswith('Ability:') or 'Nature' in linea:
-                    continue
-                nombre = linea.split('@')[0].strip()
-                nombre = re.sub(r'\s*\([MFmf]\)', '', nombre).strip()
-                if nombre and not es_texto_invalido(nombre):
-                    pokes_usuario.append(nombre)
+    with col4:
+        query_slots.append(render_slot_box(4))
+    with col5:
+        query_slots.append(render_slot_box(5))
+    with col6:
+        query_slots.append(render_slot_box(6))
 
-    # Búsqueda por Varios Ataques/Movimientos
-    ataque_usuario = st.text_input(
-        "⚔️ Filtrar por uno o varios Ataques (separados por comas):", 
-        placeholder="Ejemplo: Tailwind, Protect, Trick Room"
-    )
-
-    if st.button("🔍 Buscar Equipos Coincidentes", type="primary"):
-        if not pokes_usuario and not ataque_usuario.strip():
-            st.warning("⚠️ Selecciona al menos un Pokémon en alguna casilla o escribe un ataque.")
+    if st.button("🔍 Buscar Equipos Coincidentes", type="primary", use_container_width=True):
+        active_slots = [s for s in query_slots if s['pokemon'] or s['movimientos']]
+        
+        if not active_slots:
+            st.warning("⚠️ Selecciona al menos un Pokémon o un ataque en cualquiera de las 6 casillas.")
         else:
             equipos_a_buscar = equipos_db
             if regulacion_sel != "Todas las Regulaciones (M-B)":
                 equipos_a_buscar = [eq for eq in equipos_db if eq['pestaña'] == regulacion_sel]
-                
-            clean_user = [re.sub(r'[^a-z0-9]', '', p.lower()) for p in pokes_usuario]
-            
-            # Ataques
-            ataques_buscados_raw = [a.strip() for a in ataque_usuario.split(',') if a.strip()]
-            ataques_clean = [re.sub(r'[^a-z0-9]', '', a.lower()) for a in ataques_buscados_raw]
-            
+
             resultados = []
+
             for eq in equipos_a_buscar:
-                coincidencias_pokes = 0
-                for u in clean_user:
-                    if any(u in db_p or db_p in u for db_p in eq['clean_pokes']):
-                        coincidencias_pokes += 1
-                
+                # Cargar Pokepaste para el chequeo de ataques si está disponible
                 integrantes_paste = None
-                coincidencias_ataques = 0
-                tiene_todos_los_ataques = True
+                if eq['pokepaste']:
+                    integrantes_paste = parsear_pokepaste_estricto(eq['pokepaste'])
 
-                if ataques_clean:
-                    if eq['pokepaste']:
-                        integrantes_paste = parsear_pokepaste_estricto(eq['pokepaste'])
-                        if integrantes_paste:
-                            movs_equipo = []
-                            for poke in integrantes_paste:
-                                for m in poke.get('movimientos', []):
-                                    movs_equipo.append(re.sub(r'[^a-z0-9]', '', m.lower()))
-                            
-                            for atq in ataques_clean:
-                                if any(atq in m for m in movs_equipo):
-                                    coincidencias_ataques += 1
-                                else:
-                                    tiene_todos_los_ataques = False
-                        else:
-                            tiene_todos_los_ataques = False
-                    else:
-                        tiene_todos_los_ataques = False
+                cumple_todos_slots = True
+                pokes_coincidentes_cnt = 0
+                ataques_coincidentes_cnt = 0
 
-                pasa_pokes = (coincidencias_pokes > 0) if clean_user else True
-                pasa_ataques = tiene_todos_los_ataques if ataques_clean else True
+                for slot_req in active_slots:
+                    req_poke = slot_req['pokemon']
+                    req_poke_clean = re.sub(r'[^a-z0-9]', '', req_poke.lower()) if req_poke else None
+                    req_movs_clean = [re.sub(r'[^a-z0-9]', '', m.lower()) for m in slot_req['movimientos']]
 
-                if pasa_pokes and pasa_ataques and (clean_user or ataques_clean):
+                    # Buscar si algún integrante del equipo cumple con este Slot
+                    slot_matched = False
+                    
+                    integrantes_eval = integrantes_paste if integrantes_paste else eq['integrantes_excel']
+
+                    for item in integrantes_eval:
+                        poke_item_clean = item['clean_poke']
+                        mismo_poke = (req_poke_clean in poke_item_clean or poke_item_clean in req_poke_clean) if req_poke_clean else True
+                        
+                        if mismo_poke:
+                            if req_movs_clean:
+                                item_movs_clean = [re.sub(r'[^a-z0-9]', '', m.lower()) for m in item.get('movimientos', [])]
+                                tiene_movs = all(any(rm in im for im in item_movs_clean) for rm in req_movs_clean)
+                                if tiene_movs:
+                                    slot_matched = True
+                                    ataques_coincidentes_cnt += len(req_movs_clean)
+                                    if req_poke_clean:
+                                        pokes_coincidentes_cnt += 1
+                                    break
+                            else:
+                                slot_matched = True
+                                if req_poke_clean:
+                                    pokes_coincidentes_cnt += 1
+                                break
+
+                    if not slot_matched:
+                        cumple_todos_slots = False
+                        break
+
+                if cumple_todos_slots:
                     resultados.append({
                         'team': eq,
-                        'coincidencias': coincidencias_pokes,
-                        'coincidencias_ataques': coincidencias_ataques,
+                        'pokes_matches': pokes_coincidentes_cnt,
+                        'atqs_matches': ataques_coincidentes_cnt,
                         'integrantes_paste': integrantes_paste
                     })
-            
-            resultados.sort(key=lambda x: (x['coincidencias'], x['coincidencias_ataques']), reverse=True)
-            
+
+            resultados.sort(key=lambda x: (x['pokes_matches'], x['atqs_matches']), reverse=True)
+
             st.write(f"### 🎯 Equipos Encontrados ({len(resultados)})")
-            
+
             if not resultados:
-                st.error("No se encontraron equipos que coincidan con los Pokémon y ataques seleccionados.")
+                st.error("No se encontraron equipos que cumplan con la combinación exacta de Pokémon y ataques seleccionados.")
             else:
+                all_req_movs = []
+                for s in active_slots:
+                    all_req_movs.extend([re.sub(r'[^a-z0-9]', '', m.lower()) for m in s['movimientos']])
+
                 for res in resultados:
                     eq = res['team']
-                    n_match = res['coincidencias']
-                    cant_solicitada = len(pokes_usuario) if pokes_usuario else 1
-                    
-                    sub_info = f"Coincidencias Pokes: {n_match}/{cant_solicitada}"
-                    if ataques_clean:
-                        sub_info += f" | Ataques: {res['coincidencias_ataques']}/{len(ataques_clean)}"
+                    titulo_expander = f"⭐ [{eq['pestaña']}] Equipo en Fila {eq['excel_row']} — Coincidencias: {res['pokes_matches']} Pokes / {res['atqs_matches']} Ataques"
 
-                    titulo_expander = f"⭐ [{eq['pestaña']}] Equipo en Fila {eq['excel_row']} — {sub_info}"
-                    
-                    with st.expander(titulo_expander, expanded=(n_match >= 1 or res['coincidencias_ataques'] >= 1)):
+                    with st.expander(titulo_expander, expanded=True):
                         bar_col1, bar_col2 = st.columns([2, 1])
                         with bar_col1:
                             st.markdown(f"🎮 **Código:** `{eq['replica_code']}`")
                         with bar_col2:
                             if eq['pokepaste']:
                                 st.link_button("🔗 Ver Pokepaste (EVs)", eq['pokepaste'])
-                        
+
                         st.divider()
 
-                        integrantes = res['integrantes_paste'] if res['integrantes_paste'] else parsear_pokepaste_estricto(eq['pokepaste'])
-                        if not integrantes:
-                            integrantes = eq['integrantes_excel']
+                        integrantes = res['integrantes_paste'] if res['integrantes_paste'] else eq['integrantes_excel']
                         
                         p_col1, p_col2 = st.columns(2)
                         for idx, item in enumerate(integrantes):
@@ -358,20 +369,21 @@ with tab_buscar:
                             ability = item.get('habilidad', 'N/A')
                             moves = item.get('movimientos', [])
                             poke_clean = item['clean_poke']
-                            
-                            es_match = any(u in poke_clean or poke_clean in u for u in clean_user)
+
+                            # Resaltado
+                            req_pokes_clean = [re.sub(r'[^a-z0-9]', '', s['pokemon'].lower()) for s in active_slots if s['pokemon']]
+                            es_match = any(u in poke_clean or poke_clean in u for u in req_pokes_clean)
                             ico = "🟢" if es_match else "⚪"
-                            moves_str = " / ".join(moves) if moves else "*Sin ataques cargados*"
-                            
-                            if ataques_clean and moves:
-                                moves_formatted = []
-                                for m in moves:
-                                    m_clean = re.sub(r'[^a-z0-9]', '', m.lower())
-                                    if any(atq in m_clean for atq in ataques_clean):
-                                        moves_formatted.append(f"🔥 **{m}**")
-                                    else:
-                                        moves_formatted.append(m)
-                                moves_str = " / ".join(moves_formatted)
+
+                            moves_formatted = []
+                            for m in moves:
+                                m_clean = re.sub(r'[^a-z0-9]', '', m.lower())
+                                if any(atq in m_clean for atq in all_req_movs):
+                                    moves_formatted.append(f"🔥 **{m}**")
+                                else:
+                                    moves_formatted.append(m)
+
+                            moves_str = " / ".join(moves_formatted) if moves_formatted else "*Sin ataques cargados*"
 
                             with target_col:
                                 st.markdown(f"{ico} **{idx+1}. {poke}** @ `{obj}`")
