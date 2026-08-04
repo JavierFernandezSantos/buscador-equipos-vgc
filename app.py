@@ -238,7 +238,7 @@ with tab_buscar:
     lista_todos_pokes = ["-- Ninguno --"] + sorted(list(todos_pokes_set))
     lista_todos_objs = ["-- Cualquier Objeto --"] + sorted(list(todos_objs_set))
 
-    st.markdown("### 🔴 Configura tus 6 Slots (Pokémon + Objeto opcional por ranura)")
+    st.markdown("### 🔴 Configura tus 6 Slots (Pokémon + Objeto por ranura)")
 
     def render_slot_box(slot_num):
         with st.container(border=True):
@@ -368,9 +368,8 @@ with tab_buscar:
 # ==================== PESTAÑA 2: AÑADIR EQUIPO ====================
 with tab_anadir:
     st.subheader("📥 Añadir Nuevo Equipo")
-    st.markdown("Puedes rellenar directamente los **6 Slots de Pokémon y Objetos ordenados**, o importar automáticamente mediante un enlace de Pokepaste.")
+    st.markdown("Introduce los **6 Pokémon junto a sus respectivos Objetos ordenados**, o impórtalos automáticamente desde un enlace de Pokepaste.")
     
-    # Opción alternativa rápida: Pokepaste
     with st.expander("🔗 Opción Alternativa: Importar automáticamente desde Pokepaste"):
         paste_url_in = st.text_input("Enlace de Pokepaste (ej: https://pokepast.es/abcde):")
         if st.button("Rellenar campos desde Pokepaste"):
@@ -400,7 +399,7 @@ with tab_anadir:
     desc_in = st.text_input("📝 Descripción / Torneo:", placeholder="Ej: Top 8 Regional")
     paste_final_url = st.text_input("🔗 Enlace de Pokepaste (Opcional para guardar):")
 
-    st.markdown("### 🔴 Configura los 6 Pokémon y sus Objetos en orden estricto")
+    st.markdown("### 🔴 Configura los 6 Pokémon y sus Objetos ordenados")
 
     def render_add_slot(slot_num):
         with st.container(border=True):
@@ -421,7 +420,6 @@ with tab_anadir:
     with acol6: slots_a_guardar.append(render_add_slot(6))
 
     if st.button("⚡ Guardar Equipo en Google Sheets", type="primary", use_container_width=True):
-        # Filtrar solo los Pokémon que no estén vacíos
         pokes_lista = [p for p, o in slots_a_guardar if p != ""]
         objs_lista = [o for p, o in slots_a_guardar if p != ""]
 
