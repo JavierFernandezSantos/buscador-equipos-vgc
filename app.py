@@ -27,8 +27,9 @@ with col_right:
 st.divider()
 
 # ==================== CONFIGURACIÓN DE HOJAS ====================
-EXCEL_URL_MAESTRA = "https://docs.google.com/spreadsheets/d/1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw/export?format=xlsx"
-EXCEL_URL_PERSONAL = "https://docs.google.com/spreadsheets/d/1Lc0ZBfprfKB7Mn2Iapu9Q9v195aMIfX4gDylh7sbvRU/export?format=xlsx"
+# IDs de las hojas de Google Sheets
+ID_MAESTRA = "1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw"
+ID_PERSONAL = "1Lc0ZBfprfKB7Mn2Iapu9Q9v195aMIfX4gDylh7sbvRU"
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycby27VNNFJJN6dfqYSv0fR5T64Y2n0ZYrbQdq7rJwM2xXEc3t0hZcgp3TjdmMsPVMCgs/exec"
 
 BANNER_KEYWORDS = [
@@ -48,35 +49,34 @@ def es_texto_invalido(val):
         return True
     return False
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600, show_spinner=False)
 def cargar_todas_las_hojas():
     dict_dfs = {}
+    
+    # Descarga directa vía CSV para máxima velocidad
+    url_m = f"https://docs.google.com/sheets/d/{ID_MAESTRA}/gviz/tq?tqx=out:csv"
     try:
-        xls_m = pd.ExcelFile(EXCEL_URL_MAESTRA)
-        for sheet in xls_m.sheet_names:
-            if re.search(r'M\s*-\s*B|MB', sheet, re.IGNORECASE):
-                dict_dfs[sheet] = xls_m.parse(sheet, header=None)
+        df_m = pd.read_csv(url_m, header=None)
+        dict_dfs["Regulación Principal"] = df_m
     except Exception as e:
         st.warning(f"⚠️ No se pudo leer la hoja maestra: {e}")
 
+    url_p = f"https://docs.google.com/sheets/d/{ID_PERSONAL}/gviz/tq?tqx=out:csv"
     try:
-        xls_p = pd.ExcelFile(EXCEL_URL_PERSONAL)
-        for sheet in xls_p.sheet_names:
-            if re.search(r'M\s*-\s*B|MB', sheet, re.IGNORECASE):
-                df_p = xls_p.parse(sheet, header=None)
-                if sheet in dict_dfs:
-                    dict_dfs[sheet] = pd.concat([dict_dfs[sheet], df_p], ignore_index=True)
-                else:
-                    dict_dfs[sheet] = df_p
+        df_p = pd.read_csv(url_p, header=None)
+        if "Regulación Principal" in dict_dfs:
+            dict_dfs["Regulación Principal"] = pd.concat([dict_dfs["Regulación Principal"], df_p], ignore_index=True)
+        else:
+            dict_dfs["Regulación Principal"] = df_p
     except Exception as e:
         st.warning(f"⚠️ No se pudo leer tu hoja personal: {e}")
 
     return dict_dfs
 
 try:
-    with st.spinner("Cargando base de datos de ambas hojas..."):
+    with st.spinner("⚡ Cargando base de datos a alta velocidad..."):
         hojas_cargadas = cargar_todas_las_hojas()
-    st.sidebar.success(f"✅ {len(hojas_cargadas)} pestañas M-B cargadas.")
+    st.sidebar.success(f"✅ Base de datos cargada correctamente.")
 except Exception as e:
     st.sidebar.error(f"❌ Error al conectar con las hojas de cálculo: {e}")
     st.stop()
@@ -131,7 +131,7 @@ def parsear_texto_pokepaste(texto):
         })
     return integrantes
 
-@st.cache_data(ttl=600)
+@st.cache_data(ttl=3600, show_spinner=False)
 def parsear_pokepaste_estricto(url_paste):
     if not url_paste or "pokepast.es" not in url_paste:
         return None
@@ -139,18 +139,18 @@ def parsear_pokepaste_estricto(url_paste):
         raw_url = url_paste.strip()
         if not raw_url.endswith("/raw"):
             raw_url += "/raw"
-        resp = requests.get(raw_url, timeout=3)
+        resp = requests.get(raw_url, timeout=2)
         if resp.status_code == 200:
             return parsear_texto_pokepaste(resp.text)
     except Exception:
         pass
     return None
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=3600, show_spinner=False)
 def procesar_equipos_rapido(_dict_dfs):
     equipos = []
     for nombre_pestaña, df in _dict_dfs.items():
-        df_equipos = df.iloc[3:]
+        df_equipos = df.iloc[3:] if len(df) > 3 else df
         for idx_fila, row in df_equipos.iterrows():
             valores_fila = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() != '']
             if not valores_fila:
@@ -212,24 +212,18 @@ with tab_buscar:
     regulacion_sel = st.selectbox("📌 Filtrar por Regulación / Pestaña:", ["Todas las Regulaciones (M-B)"] + pestañas_disponibles)
 
     todos_pokes_set = set()
-    todos_movs_set = set()
-
     for eq in equipos_db:
         for item in eq['integrantes_excel']:
             todos_pokes_set.add(item['pokemon'])
             
     lista_todos_pokes = ["-- Ninguno --"] + sorted(list(todos_pokes_set))
-    
-    # Extraer también movimientos de Pokepastes si están precargados
-    for eq in equipos_db:
-        if eq['pokepaste']:
-            parsed = parsear_pokepaste_estricto(eq['pokepaste'])
-            if parsed:
-                for item in parsed:
-                    for m in item.get('movimientos', []):
-                        todos_movs_set.add(m)
 
-    lista_todos_movs = ["-- Ninguno --"] + sorted(list(todos_movs_set))
+    # Lista ligera de movimientos comunes para evitar descargas lentas
+    ATAQUES_POPULARES = [
+        "-- Ninguno --", "Protect", "Tailwind", "Trick Room", "Fake Out", "Follow Me", 
+        "Rage Powder", "Icy Wind", "Heat Wave", "Ivy Cudgel", "Surging Strikes", 
+        "Wicked Blow", "Make It Rain", "Electro Shot", "Expanding Force", "Spore"
+    ]
 
     st.markdown("### 🔴 Selección de Pokémon y Ataques (Slots 1 al 6)")
 
@@ -238,11 +232,11 @@ with tab_buscar:
             st.markdown(f"**Slot {slot_num}**")
             poke_selected = st.selectbox("Pokémon:", options=lista_todos_pokes, key=f"s_{slot_num}_poke", label_visibility="collapsed")
             
-            st.caption("Ataques:")
-            m1 = st.selectbox("Ataque 1", options=lista_todos_movs, key=f"s_{slot_num}_m1", label_visibility="collapsed")
-            m2 = st.selectbox("Ataque 2", options=lista_todos_movs, key=f"s_{slot_num}_m2", label_visibility="collapsed")
-            m3 = st.selectbox("Ataque 3", options=lista_todos_movs, key=f"s_{slot_num}_m3", label_visibility="collapsed")
-            m4 = st.selectbox("Ataque 4", options=lista_todos_movs, key=f"s_{slot_num}_m4", label_visibility="collapsed")
+            st.caption("Ataques (Escribe o Selecciona):")
+            m1 = st.selectbox("Ataque 1", options=ATAQUES_POPULARES, key=f"s_{slot_num}_m1", label_visibility="collapsed")
+            m2 = st.selectbox("Ataque 2", options=ATAQUES_POPULARES, key=f"s_{slot_num}_m2", label_visibility="collapsed")
+            m3 = st.selectbox("Ataque 3", options=ATAQUES_POPULARES, key=f"s_{slot_num}_m3", label_visibility="collapsed")
+            m4 = st.selectbox("Ataque 4", options=ATAQUES_POPULARES, key=f"s_{slot_num}_m4", label_visibility="collapsed")
 
             movs = [m for m in [m1, m2, m3, m4] if m and m != "-- Ninguno --"]
             return {
@@ -250,24 +244,17 @@ with tab_buscar:
                 'movimientos': movs
             }
 
-    # Renderizar los 6 slots en 2 filas de 3 columnas
     col1, col2, col3 = st.columns(3)
     col4, col5, col6 = st.columns(3)
 
     query_slots = []
-    with col1:
-        query_slots.append(render_slot_box(1))
-    with col2:
-        query_slots.append(render_slot_box(2))
-    with col3:
-        query_slots.append(render_slot_box(3))
+    with col1: query_slots.append(render_slot_box(1))
+    with col2: query_slots.append(render_slot_box(2))
+    with col3: query_slots.append(render_slot_box(3))
 
-    with col4:
-        query_slots.append(render_slot_box(4))
-    with col5:
-        query_slots.append(render_slot_box(5))
-    with col6:
-        query_slots.append(render_slot_box(6))
+    with col4: query_slots.append(render_slot_box(4))
+    with col5: query_slots.append(render_slot_box(5))
+    with col6: query_slots.append(render_slot_box(6))
 
     if st.button("🔍 Buscar Equipos Coincidentes", type="primary", use_container_width=True):
         active_slots = [s for s in query_slots if s['pokemon'] or s['movimientos']]
@@ -282,7 +269,6 @@ with tab_buscar:
             resultados = []
 
             for eq in equipos_a_buscar:
-                # Cargar Pokepaste para el chequeo de ataques si está disponible
                 integrantes_paste = None
                 if eq['pokepaste']:
                     integrantes_paste = parsear_pokepaste_estricto(eq['pokepaste'])
@@ -296,9 +282,7 @@ with tab_buscar:
                     req_poke_clean = re.sub(r'[^a-z0-9]', '', req_poke.lower()) if req_poke else None
                     req_movs_clean = [re.sub(r'[^a-z0-9]', '', m.lower()) for m in slot_req['movimientos']]
 
-                    # Buscar si algún integrante del equipo cumple con este Slot
                     slot_matched = False
-                    
                     integrantes_eval = integrantes_paste if integrantes_paste else eq['integrantes_excel']
 
                     for item in integrantes_eval:
@@ -312,13 +296,11 @@ with tab_buscar:
                                 if tiene_movs:
                                     slot_matched = True
                                     ataques_coincidentes_cnt += len(req_movs_clean)
-                                    if req_poke_clean:
-                                        pokes_coincidentes_cnt += 1
+                                    if req_poke_clean: pokes_coincidentes_cnt += 1
                                     break
                             else:
                                 slot_matched = True
-                                if req_poke_clean:
-                                    pokes_coincidentes_cnt += 1
+                                if req_poke_clean: pokes_coincidentes_cnt += 1
                                 break
 
                     if not slot_matched:
@@ -338,7 +320,7 @@ with tab_buscar:
             st.write(f"### 🎯 Equipos Encontrados ({len(resultados)})")
 
             if not resultados:
-                st.error("No se encontraron equipos que cumplan con la combinación exacta de Pokémon y ataques seleccionados.")
+                st.error("No se encontraron equipos que cumplan con la combinación seleccionada.")
             else:
                 all_req_movs = []
                 for s in active_slots:
@@ -370,7 +352,6 @@ with tab_buscar:
                             moves = item.get('movimientos', [])
                             poke_clean = item['clean_poke']
 
-                            # Resaltado
                             req_pokes_clean = [re.sub(r'[^a-z0-9]', '', s['pokemon'].lower()) for s in active_slots if s['pokemon']]
                             es_match = any(u in poke_clean or poke_clean in u for u in req_pokes_clean)
                             ico = "🟢" if es_match else "⚪"
