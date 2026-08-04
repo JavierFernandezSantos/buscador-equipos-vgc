@@ -7,14 +7,14 @@ import requests
 st.set_page_config(page_title="Buscador de Equipos VGC", page_icon="🎮", layout="wide")
 
 # Cabecera con Imagen de Pokémon
-st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/International_Pok%C3%A9mon_logo.svg/1200px-International_Pok%C3%A9mon_logo.svg.png", width=300)
+st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/International_Pok%C3%A9mon_logo.svg/1200px-International_Pok%C3%A9mon_logo.svg.png", width=250)
 
 col_title, col_icon = st.columns([4, 1])
 with col_title:
     st.title("⚔️ Buscador y Comparador de Equipos VGC")
-    st.markdown("Analizador de **VGCPastes Repository** con aislamiento estricto de Ataques (máx. 4), Naturalezas y Objetos.")
+    st.markdown("Analizador de **VGCPastes Repository** con vista compacta de equipos.")
 with col_icon:
-    st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=70)
+    st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=60)
 
 st.divider()
 
@@ -56,7 +56,7 @@ except Exception as e:
     st.sidebar.error(f"❌ Error al conectar con el Excel: {e}")
     st.stop()
 
-# 🧠 PARSEADOR ESTRICTO DE POKEPASTE (Normaliza \r\n y limita a máx. 4 ataques por bloque)
+# 🧠 PARSEADOR ESTRICTO DE POKEPASTE (Máximo 4 ataques por Pokémon)
 @st.cache_data(ttl=3600)
 def parsear_pokepaste_estricto(url_paste):
     if not url_paste or "pokepast.es" not in url_paste:
@@ -67,7 +67,6 @@ def parsear_pokepaste_estricto(url_paste):
             raw_url += "/raw"
         resp = requests.get(raw_url, timeout=3)
         if resp.status_code == 200:
-            # Normalizar saltos de línea (\r\n -> \n)
             texto = resp.text.replace('\r\n', '\n').replace('\r', '\n')
             bloques = re.split(r'\n\s*\n', texto.strip())
             
@@ -77,7 +76,6 @@ def parsear_pokepaste_estricto(url_paste):
                 if not lineas:
                     continue
                 
-                # Línea 1: Nombre @ Objeto
                 encabezado = lineas[0]
                 if '@' in encabezado:
                     partes = encabezado.split('@', 1)
@@ -87,7 +85,6 @@ def parsear_pokepaste_estricto(url_paste):
                     raw_poke = encabezado.strip()
                     item_name = "Sin objeto"
                 
-                # Extraer especie si hay mote o género (ej: "Incineroar (M)" -> "Incineroar")
                 if '(' in raw_poke and ')' in raw_poke:
                     match_sp = re.search(r'\(([^)]+)\)', raw_poke)
                     if match_sp and match_sp.group(1).strip() not in ['M', 'F', 'm', 'f']:
@@ -111,7 +108,6 @@ def parsear_pokepaste_estricto(url_paste):
                     elif 'Nature' in l:
                         naturaleza = l.replace('Nature', '').strip()
 
-                # Limitar estrictamente a 4 ataques por Pokémon
                 movimientos = movimientos[:4]
 
                 integrantes.append({
@@ -161,10 +157,6 @@ def procesar_equipos_rapido(_dict_dfs):
             if not pokemons_fila:
                 continue
 
-            candidatos_meta = [v for v in valores_fila if not es_texto_invalido(v) and v != replica_code and v != pokepaste]
-            owner = candidatos_meta[0] if len(candidatos_meta) > 0 else "Desconocido"
-            description = candidatos_meta[1] if len(candidatos_meta) > 1 else "Sin descripción"
-            
             candidatos_texto = [v for v in valores_fila if not es_texto_invalido(v) and v not in pokemons_fila and v != replica_code and v != pokepaste]
             objetos_fila = [v for v in candidatos_texto[2:] if not re.match(r'^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$', v) and not v.startswith('@')]
 
@@ -183,8 +175,6 @@ def procesar_equipos_rapido(_dict_dfs):
             equipos.append({
                 'pestaña': nombre_pestaña,
                 'excel_row': idx_fila + 1,
-                'owner': owner,
-                'description': description,
                 'pokepaste': pokepaste,
                 'replica_code': replica_code,
                 'integrantes_excel': integrantes_excel,
@@ -215,7 +205,7 @@ pokes_usuario = []
 if "Pegar" in modo:
     user_text = st.text_area(
         "Pega aquí tu equipo o nombres (un Pokémon por línea):",
-        height=160,
+        height=140,
         placeholder="Incineroar\nArchaludon\nPelipper"
     )
     if user_text:
@@ -268,44 +258,46 @@ if st.button("🔍 Buscar Equipos Coincidentes", type="primary"):
                 eq = res['team']
                 n_match = res['coincidencias']
                 
-                with st.expander(f"⭐ [{eq['pestaña']}] Jugador: {eq['owner']} (Excel Fila {eq['excel_row']}) — {n_match}/{len(pokes_usuario)} coincidencia/s", expanded=(n_match >= 2)):
-                    c1, c2 = st.columns([2, 1])
+                titulo_expander = f"⭐ [{eq['pestaña']}] Equipo en Fila {eq['excel_row']} — Coincidencias: {n_match}/{len(pokes_usuario)}"
+                
+                with st.expander(titulo_expander, expanded=(n_match >= 2)):
+                    # Barra superior compacta con Código de préstamo y Enlace a Pokepaste
+                    bar_col1, bar_col2 = st.columns([2, 1])
+                    with bar_col1:
+                        if eq['replica_code'] != "No disponible":
+                            st.markdown(f"🎮 **Código:** `{eq['replica_code']}`")
+                        else:
+                            st.markdown("🎮 **Código:** *No disponible*")
+                    with bar_col2:
+                        if eq['pokepaste']:
+                            st.link_button("🔗 Ver Pokepaste (EVs)", eq['pokepaste'])
                     
+                    st.divider()
+
                     integrantes_paste = parsear_pokepaste_estricto(eq['pokepaste'])
                     integrantes = integrantes_paste if integrantes_paste else eq['integrantes_excel']
                     
-                    with c1:
-                        st.markdown(f"**👤 Jugador:** `{eq['owner']}` | **📌 Regulación:** `{eq['pestaña']}`")
-                        st.markdown("#### 📋 Integrantes del Equipo:")
-                        
-                        for idx, item in enumerate(integrantes, 1):
-                            poke = item['pokemon']
-                            obj = item['objeto']
-                            nature = item.get('naturaleza', 'No especificada')
-                            ability = item.get('habilidad', 'No especificada')
-                            moves = item.get('movimientos', [])
-                            poke_clean = item['clean_poke']
-                            
-                            es_match = any(u in poke_clean or poke_clean in u for u in clean_user)
-                            ico = "🟢" if es_match else "⚪"
-                            
-                            moves_str = " | ".join([f"`{m}`" for m in moves]) if moves else "*Sin ataques registrados*"
-                            
-                            st.markdown(f"{ico} **{idx}. {poke}** @ `{obj}`")
-                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;🎭 **Naturaleza:** `{nature}` | 🧬 **Habilidad:** `{ability}`")
-                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚔️ **Ataques:** {moves_str}")
-                            
-                            if idx < len(integrantes):
-                                st.markdown("---")
+                    # Layout en 2 columnas compactas (3 Pokémon a la izquierda y 3 a la derecha)
+                    p_col1, p_col2 = st.columns(2)
                     
-                    with c2:
-                        st.markdown("**🎮 Código de Préstamo:**")
-                        if eq['replica_code'] != "No disponible":
-                            st.code(eq['replica_code'])
-                        else:
-                            st.caption("No disponible")
-                            
-                        if eq['pokepaste']:
-                            st.link_button("🔗 Ver Pokepaste Completo (EVs)", eq['pokepaste'])
-                        else:
-                            st.caption("Sin Pokepaste")
+                    for idx, item in enumerate(integrantes):
+                        target_col = p_col1 if idx < 3 else p_col2
+                        
+                        poke = item['pokemon']
+                        obj = item['objeto']
+                        nature = item.get('naturaleza', 'N/A')
+                        ability = item.get('habilidad', 'N/A')
+                        moves = item.get('movimientos', [])
+                        poke_clean = item['clean_poke']
+                        
+                        es_match = any(u in poke_clean or poke_clean in u for u in clean_user)
+                        ico = "🟢" if es_match else "⚪"
+                        
+                        moves_str = " / ".join(moves) if moves else "*Sin ataques*"
+                        
+                        with target_col:
+                            st.markdown(f"{ico} **{idx+1}. {poke}** @ `{obj}`")
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;🎭 `{nature}` | 🧬 `{ability}`")
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚔️ `{moves_str}`")
+                            if idx != 2 and idx != 5:
+                                st.markdown("---")
