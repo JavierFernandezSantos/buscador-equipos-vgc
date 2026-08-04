@@ -30,7 +30,7 @@ st.divider()
 ID_MAESTRA = "1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw"
 ID_PERSONAL = "1Lc0ZBfprfKB7Mn2Iapu9Q9v195aMIfX4gDylh7sbvRU"
 GID_ESPECIFICO = "1458357160"
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbyR2wGYtVJheZk0shg-90xWUxt67MYEUneZW8463bo3HlmuoVyY_l7wWk0L8HpKaTE/exec"
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwEr6dhKoCngNj7S2560rQMGabdXeUwex--ywdaaXsy0u__zvwkFkDVUP0oYxGjzANA/exec"
 
 BANNER_KEYWORDS = [
     "click here", "twitter", "discord", "featured teams", "replica code",
