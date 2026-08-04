@@ -127,7 +127,7 @@ def cargar_todas_las_hojas():
                 row_full[0] = str(r['code'] or "")
                 row_full[1] = str(r['owner'] or "")
                 row_full[2] = str(r['description'] or "")
-                row_full[3] = str(r['pokepaste'] or "")
+                row_full[3] = str(r['pokepaste'] or "") # <--- Aquí ya se inyecta correctamente el link del pokepaste
                 
                 objs = [r['o1'], r['o2'], r['o3'], r['o4'], r['o5'], r['o6']]
                 idxs_o = [7, 10, 13, 16, 19, 22]
@@ -184,26 +184,9 @@ def parsear_texto_pokepaste(texto):
         else:
             poke_name = raw_poke
 
-        movimientos = []
-        naturaleza = "No especificada"
-        habilidad = "No especificada"
-        
-        for l in lineas[1:]:
-            if l.startswith('-'):
-                mov_name = l.lstrip('-').strip()
-                if mov_name:
-                    movimientos.append(mov_name)
-            elif l.startswith('Ability:'):
-                habilidad = l.replace('Ability:', '').strip()
-            elif 'Nature' in l:
-                naturaleza = l.replace('Nature', '').strip()
-
         integrantes.append({
             'pokemon': poke_name,
             'objeto': item_name,
-            'naturaleza': naturaleza,
-            'habilidad': habilidad,
-            'movimientos': movimientos[:4],
             'clean_poke': re.sub(r'[^a-z0-9]', '', poke_name.lower()),
             'clean_obj': re.sub(r'[^a-z0-9]', '', item_name.lower())
         })
@@ -264,9 +247,6 @@ def procesar_equipos_rapido(_dict_dfs):
                 integrantes_excel.append({
                     'pokemon': poke_val,
                     'objeto': obj_val,
-                    'naturaleza': 'N/A',
-                    'habilidad': 'N/A',
-                    'movimientos': [],
                     'clean_poke': re.sub(r'[^a-z0-9]', '', poke_val.lower()),
                     'clean_obj': re.sub(r'[^a-z0-9]', '', obj_val.lower())
                 })
@@ -279,8 +259,7 @@ def procesar_equipos_rapido(_dict_dfs):
                 'excel_row': idx_fila + 1,
                 'pokepaste': pokepaste,
                 'replica_code': replica_code,
-                'integrantes_excel': integrantes_excel,
-                'clean_pokes': [item['clean_poke'] for item in integrantes_excel]
+                'integrantes_excel': integrantes_excel
             })
     return equipos
 
@@ -341,9 +320,7 @@ with tab_buscar:
             resultados = []
 
             for eq in equipos_a_buscar:
-                # Búsqueda instantánea usando solo los datos locales (sin hacer peticiones web lentas al buscar)
                 integrantes_eval = eq['integrantes_excel']
-
                 cumple_todos_slots = True
                 matches_count = 0
 
@@ -395,13 +372,12 @@ with tab_buscar:
                         with bar_col1:
                             st.markdown(f"🎮 **Código:** `{eq['replica_code']}`")
                         with bar_col2:
-                            if eq['pokepaste']:
+                            if eq['pokepaste'] and eq['pokepaste'].strip():
                                 st.link_button("🔗 Ver Pokepaste", eq['pokepaste'])
 
                         st.divider()
 
                         integrantes = eq['integrantes_excel']
-                        
                         p_col1, p_col2 = st.columns(2)
                         for idx, item in enumerate(integrantes):
                             target_col = p_col1 if idx < 3 else p_col2
@@ -425,12 +401,14 @@ with tab_anadir:
     st.subheader("📥 Añadir Nuevo Equipo")
     st.markdown("Introduce los **6 Pokémon** y sus respectivos **Objetos ordenados**, o impórtalos automáticamente desde Pokepaste.")
     
-    with st.expander("🔗 Opción Alternativa: Importar automáticamente desde Pokepaste"):
-        paste_url_in = st.text_input("Enlace de Pokepaste (ej: https://pokepast.es/abcde):")
-        if st.button("Rellenar campos desde Pokepaste"):
-            if paste_url_in.strip():
+    # Campo global de Pokepaste para que se quede guardado al importar o escribirlo manualmente
+    paste_final_url = st.text_input("🔗 Enlace de Pokepaste (para guardar y consultar los EVs):", key="input_url_paste_global")
+
+    with st.expander("🔗 Rellenar slots automáticamente pegando el link arriba"):
+        if st.button("Rellenar campos desde este Pokepaste"):
+            if paste_final_url.strip():
                 with st.spinner("Descargando Pokepaste..."):
-                    parsed_auto = obtener_datos_pokepaste(paste_url_in.strip())
+                    parsed_auto = obtener_datos_pokepaste(paste_final_url.strip())
                 if parsed_auto:
                     for i, p_info in enumerate(parsed_auto[:6]):
                         st.session_state[f"add_p_{i+1}"] = p_info['pokemon']
@@ -440,7 +418,7 @@ with tab_anadir:
                 else:
                     st.error("No se pudo leer el Pokepaste.")
             else:
-                st.warning("Introduce un enlace válido.")
+                st.warning("Introduce un enlace de Pokepaste arriba primero.")
 
     st.divider()
 
@@ -453,7 +431,6 @@ with tab_anadir:
         reg_target = st.selectbox("📌 Regulación / Destino:", pestañas_disponibles)
 
     desc_in = st.text_input("📝 Descripción / Torneo:", placeholder="Ej: Top 8 Regional")
-    paste_final_url = st.text_input("🔗 Enlace de Pokepaste (Opcional para guardar):")
 
     st.markdown("### 🔴 Configura los 6 Pokémon y sus Objetos")
 
@@ -495,7 +472,7 @@ with tab_anadir:
                     owner_in,
                     desc_in,
                     code_in,
-                    paste_final_url,
+                    paste_final_url,  # <--- Aquí se guarda correctamente en la base de datos local
                     slots_a_guardar[0][0], slots_a_guardar[0][1],
                     slots_a_guardar[1][0], slots_a_guardar[1][1],
                     slots_a_guardar[2][0], slots_a_guardar[2][1],
@@ -508,7 +485,7 @@ with tab_anadir:
                 conn.close()
 
                 st.balloons()
-                st.success("🎉 ¡Equipo guardado con éxito al instante!")
+                st.success("🎉 ¡Equipo y Pokepaste guardados con éxito al instante!")
                 st.cache_data.clear()
                 st.rerun()
             except Exception as ex:
