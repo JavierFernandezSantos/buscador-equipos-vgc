@@ -27,7 +27,7 @@ with col_right:
 
 st.divider()
 
-# ==================== CONFIGURACIÓN DE BASE DE DATOS LOCAL (SQLITE) ====================
+# ==================== BASE DE DATOS LOCAL (SQLITE) ====================
 DB_NAME = "equipos_vgc.db"
 
 def inicializar_db():
@@ -88,13 +88,13 @@ def cargar_todas_las_hojas():
     try:
         df_m = pd.read_csv(url_m, header=None)
         dict_dfs["Regulación Principal (Maestra)"] = df_m
-    except Exception as e:
+    except Exception:
         try:
             url_m_alt = f"https://docs.google.com/spreadsheets/d/{ID_MAESTRA}/export?format=csv"
             df_m = pd.read_csv(url_m_alt, header=None)
             dict_dfs["Regulación Principal (Maestra)"] = df_m
-        except Exception as e2:
-            st.warning(f"⚠️ No se pudo leer la hoja maestra: {e2}")
+        except Exception:
+            pass
 
     if ID_PERSONAL and ID_PERSONAL.strip():
         url_p = f"https://docs.google.com/spreadsheets/d/{ID_PERSONAL}/export?format=csv&gid={GID_ESPECIFICO}"
@@ -115,32 +115,25 @@ def cargar_todas_las_hojas():
             except Exception:
                 pass
 
-    # Añadimos los equipos guardados localmente en SQLite como una pestaña o DataFrame adicional
+    # Añadir los equipos guardados localmente
     try:
         conn = sqlite3.connect(DB_NAME)
         df_local = pd.read_sql_query("SELECT * FROM equipos_locales", conn)
         conn.close()
         if not df_local.empty:
-            # Transformamos el formato local para que sea compatible con el lector de equipos
-            # Columnas mapeadas: [id, pestana, owner, description, code, pokepaste, p1, o1, p2, o2, p3, o3, p4, o4, p5, o5, p6, o6]
             filas_sintetizadas = []
             for _, r in df_local.iterrows():
-                row_data = [r['code'], r['owner'], r['description'], r['pokepaste']]
-                # Rellenar hasta llegar a los índices de objetos y pokémons esperados o adaptarlos
-                # Para simplificar, creamos una estructura de fila vacía de tamaño 50 y colocamos los datos en sus índices exactos
                 row_full = [""] * 50
                 row_full[0] = str(r['code'] or "")
                 row_full[1] = str(r['owner'] or "")
                 row_full[2] = str(r['description'] or "")
                 row_full[3] = str(r['pokepaste'] or "")
                 
-                # Objetos en H, K, N, Q, T, W (índices 7, 10, 13, 16, 19, 22)
                 objs = [r['o1'], r['o2'], r['o3'], r['o4'], r['o5'], r['o6']]
                 idxs_o = [7, 10, 13, 16, 19, 22]
                 for idx_col, val_obj in zip(idxs_o, objs):
                     if val_obj: row_full[idx_col] = val_obj
                 
-                # Pokémon en AL hasta AQ (índices 37 al 42)
                 pokes = [r['p1'], r['p2'], r['p3'], r['p4'], r['p5'], r['p6']]
                 idxs_p = [37, 38, 39, 40, 41, 42]
                 for idx_col, val_poke in zip(idxs_p, pokes):
@@ -150,13 +143,9 @@ def cargar_todas_las_hojas():
             
             if filas_sintetizadas:
                 df_loc_mapped = pd.DataFrame(filas_sintetizadas)
-                pestana_nombre = "Equipos Añadidos Localmente 📥"
-                if pestana_nombre in dict_dfs:
-                    dict_dfs[pestana_nombre] = pd.concat([dict_dfs[pestana_nombre], df_loc_mapped], ignore_index=True)
-                else:
-                    dict_dfs[pestana_nombre] = df_loc_mapped
-    except Exception as ex:
-        st.sidebar.warning(f"Nota base local: {ex}")
+                dict_dfs["Equipos Añadidos Localmente 📥"] = df_loc_mapped
+    except Exception:
+        pass
 
     return dict_dfs
 
@@ -168,6 +157,7 @@ except Exception as e:
     st.sidebar.error(f"❌ Error al cargar los datos: {e}")
     st.stop()
 
+@st.cache_data(ttl=3600, show_spinner=False)
 def parsear_texto_pokepaste(texto):
     bloques = re.split(r'\n\s*\n', texto.strip())
     integrantes = []
@@ -220,14 +210,14 @@ def parsear_texto_pokepaste(texto):
     return integrantes
 
 @st.cache_data(ttl=3600, show_spinner=False)
-def parsear_pokepaste_estricto(url_paste):
+def obtener_datos_pokepaste(url_paste):
     if not url_paste or "pokepast.es" not in url_paste:
         return None
     try:
         raw_url = url_paste.strip()
         if not raw_url.endswith("/raw"):
             raw_url += "/raw"
-        resp = requests.get(raw_url, timeout=2)
+        resp = requests.get(raw_url, timeout=1.5)
         if resp.status_code == 200:
             return parsear_texto_pokepaste(resp.text)
     except Exception:
@@ -274,8 +264,8 @@ def procesar_equipos_rapido(_dict_dfs):
                 integrantes_excel.append({
                     'pokemon': poke_val,
                     'objeto': obj_val,
-                    'naturaleza': 'Cargando...',
-                    'habilidad': 'Cargando...',
+                    'naturaleza': 'N/A',
+                    'habilidad': 'N/A',
                     'movimientos': [],
                     'clean_poke': re.sub(r'[^a-z0-9]', '', poke_val.lower()),
                     'clean_obj': re.sub(r'[^a-z0-9]', '', obj_val.lower())
@@ -351,11 +341,8 @@ with tab_buscar:
             resultados = []
 
             for eq in equipos_a_buscar:
-                integrantes_paste = None
-                if eq['pokepaste']:
-                    integrantes_paste = parsear_pokepaste_estricto(eq['pokepaste'])
-
-                integrantes_eval = integrantes_paste if integrantes_paste else eq['integrantes_excel']
+                # Búsqueda instantánea usando solo los datos locales (sin hacer peticiones web lentas al buscar)
+                integrantes_eval = eq['integrantes_excel']
 
                 cumple_todos_slots = True
                 matches_count = 0
@@ -389,8 +376,7 @@ with tab_buscar:
                 if cumple_todos_slots:
                     resultados.append({
                         'team': eq,
-                        'matches': matches_count,
-                        'integrantes_paste': integrantes_paste
+                        'matches': matches_count
                     })
 
             resultados.sort(key=lambda x: x['matches'], reverse=True)
@@ -410,20 +396,17 @@ with tab_buscar:
                             st.markdown(f"🎮 **Código:** `{eq['replica_code']}`")
                         with bar_col2:
                             if eq['pokepaste']:
-                                st.link_button("🔗 Ver Pokepaste (EVs)", eq['pokepaste'])
+                                st.link_button("🔗 Ver Pokepaste", eq['pokepaste'])
 
                         st.divider()
 
-                        integrantes = res['integrantes_paste'] if res['integrantes_paste'] else eq['integrantes_excel']
+                        integrantes = eq['integrantes_excel']
                         
                         p_col1, p_col2 = st.columns(2)
                         for idx, item in enumerate(integrantes):
                             target_col = p_col1 if idx < 3 else p_col2
                             poke = item['pokemon']
                             obj = item['objeto']
-                            nature = item.get('naturaleza', 'N/A')
-                            ability = item.get('habilidad', 'N/A')
-                            moves = item.get('movimientos', [])
                             poke_clean = item['clean_poke']
 
                             es_match = any(
@@ -432,12 +415,8 @@ with tab_buscar:
                             )
                             ico = "🟢" if es_match else "⚪"
 
-                            moves_str = " / ".join(moves) if moves else "*Sin ataques cargados*"
-
                             with target_col:
                                 st.markdown(f"{ico} **{idx+1}. {poke}** @ `{obj}`")
-                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;🎭 `{nature}` | 🧬 `{ability}`")
-                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚔️ {moves_str}")
                                 if idx != 2 and idx != 5:
                                     st.markdown("---")
 
@@ -450,7 +429,8 @@ with tab_anadir:
         paste_url_in = st.text_input("Enlace de Pokepaste (ej: https://pokepast.es/abcde):")
         if st.button("Rellenar campos desde Pokepaste"):
             if paste_url_in.strip():
-                parsed_auto = parsear_pokepaste_estricto(paste_url_in.strip())
+                with st.spinner("Descargando Pokepaste..."):
+                    parsed_auto = obtener_datos_pokepaste(paste_url_in.strip())
                 if parsed_auto:
                     for i, p_info in enumerate(parsed_auto[:6]):
                         st.session_state[f"add_p_{i+1}"] = p_info['pokemon']
@@ -530,7 +510,6 @@ with tab_anadir:
                 st.balloons()
                 st.success("🎉 ¡Equipo guardado con éxito al instante!")
                 st.cache_data.clear()
-                st.info("🔄 Actualizando base de datos...")
                 st.rerun()
             except Exception as ex:
                 st.error(f"Error al guardar: {ex}")
