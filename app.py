@@ -164,6 +164,7 @@ def parsear_pokepaste_estricto(url_paste):
 def procesar_equipos_rapido(_dict_dfs):
     equipos = []
     for nombre_pestaña, df in _dict_dfs.items():
+        # La estructura empieza en la fila 4 (índice 3 en Pandas)
         df_equipos = df.iloc[3:] if len(df) > 3 else df
         for idx_fila, row in df_equipos.iterrows():
             valores_fila = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() != '']
@@ -179,33 +180,34 @@ def procesar_equipos_rapido(_dict_dfs):
                     if not es_texto_invalido(val):
                         replica_code = val
 
-            candidatos_pokes = []
-            for val in reversed(valores_fila):
-                if not es_texto_invalido(val) and len(val) > 2:
-                    if not re.match(r'^[A-Z0-9]{6}$', val) and not val.startswith('MB'):
-                        candidatos_pokes.append(val)
-                if len(candidatos_pokes) == 6:
-                    break
-            
-            pokemons_fila = list(reversed(candidatos_pokes))
-            if not pokemons_fila:
-                continue
-
-            candidatos_texto = [v for v in valores_fila if not es_texto_invalido(v) and v not in pokemons_fila and v != replica_code and v != pokepaste]
-            objetos_fila = [v for v in candidatos_texto[2:] if not re.match(r'^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$', v) and not v.startswith('@')]
-
+            # Columna H corresponde al índice 7 de Pandas (A=0, B=1, C=2, D=3, E=4, F=5, G=6, H=7)
+            # Los pokémon y objetos están intercalados cada 3 columnas a partir de H4 (índice 7)
             integrantes_excel = []
-            for i, p in enumerate(pokemons_fila):
-                obj = objetos_fila[i] if i < len(objetos_fila) else "Sin objeto"
-                integrantes_excel.append({
-                    'pokemon': p,
-                    'objeto': obj,
-                    'naturaleza': 'Cargando...',
-                    'habilidad': 'Cargando...',
-                    'movimientos': [],
-                    'clean_poke': re.sub(r'[^a-z0-9]', '', p.lower()),
-                    'clean_obj': re.sub(r'[^a-z0-9]', '', obj.lower())
-                })
+            indices_columnas = [7, 10, 13, 16, 19, 22]  # H, K, N, Q, T, W (cada 3 columnas)
+            
+            for idx_col in indices_columnas:
+                if idx_col < len(row):
+                    poke_val = str(row.iat[idx_col]).strip() if pd.notna(row.iat[idx_col]) else ""
+                    # El objeto suele estar justo al lado (en la columna siguiente o a 1-2 columnas de separación)
+                    obj_val = "Sin objeto"
+                    if idx_col + 1 < len(row):
+                        posible_obj = str(row.iat[idx_col + 1]).strip()
+                        if pd.notna(posible_obj) and posible_obj != "" and not es_texto_invalido(posible_obj):
+                            obj_val = posible_obj
+
+                    if poke_val and not es_texto_invalido(poke_val):
+                        integrantes_excel.append({
+                            'pokemon': poke_val,
+                            'objeto': obj_val,
+                            'naturaleza': 'Cargando...',
+                            'habilidad': 'Cargando...',
+                            'movimientos': [],
+                            'clean_poke': re.sub(r'[^a-z0-9]', '', poke_val.lower()),
+                            'clean_obj': re.sub(r'[^a-z0-9]', '', obj_val.lower())
+                        })
+
+            if not integrantes_excel:
+                continue
 
             equipos.append({
                 'pestaña': nombre_pestaña,
