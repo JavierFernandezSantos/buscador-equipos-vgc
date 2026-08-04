@@ -2,19 +2,31 @@ import streamlit as st
 import pandas as pd
 import re
 import requests
+import os
 
 # Configuración de la página
-st.set_page_config(page_title="Buscador de Equipos VGC", page_icon="🎮", layout="wide")
+st.set_page_config(page_title="Comparador de Equipos VGC", page_icon="🎮", layout="wide")
 
-# Cabecera con Imagen de Pokémon
-st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/International_Pok%C3%A9mon_logo.svg/1200px-International_Pok%C3%A9mon_logo.svg.png", width=250)
+# Cabecera con Imagen de Pokémon Champions
+IMAGE_URL = "https://assets.pokemon.com/static-assets/content-assets/cms2/img/trading-card-game/_articles/champions/pokemon-champions-169.jpg"
 
-col_title, col_icon = st.columns([4, 1])
+if os.path.exists("logo.png"):
+    st.image("logo.png", width=380)
+else:
+    st.image(IMAGE_URL, width=380)
+
+# Titulo flanqueado entre dos Pokéballs (sin espadas ni 'Buscador')
+col_left, col_title, col_right = st.columns([1, 8, 1])
+
+with col_left:
+    st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
+
 with col_title:
-    st.title("⚔️ Buscador y Comparador de Equipos VGC")
+    st.title("Comparador de Equipos VGC")
     st.markdown("Analizador de **VGCPastes Repository** con vista compacta de equipos.")
-with col_icon:
-    st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=60)
+
+with col_right:
+    st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 
 st.divider()
 
@@ -261,7 +273,6 @@ if st.button("🔍 Buscar Equipos Coincidentes", type="primary"):
                 titulo_expander = f"⭐ [{eq['pestaña']}] Equipo en Fila {eq['excel_row']} — Coincidencias: {n_match}/{len(pokes_usuario)}"
                 
                 with st.expander(titulo_expander, expanded=(n_match >= 2)):
-                    # Barra superior compacta con Código de préstamo y Enlace a Pokepaste
                     bar_col1, bar_col2 = st.columns([2, 1])
                     with bar_col1:
                         if eq['replica_code'] != "No disponible":
@@ -277,7 +288,6 @@ if st.button("🔍 Buscar Equipos Coincidentes", type="primary"):
                     integrantes_paste = parsear_pokepaste_estricto(eq['pokepaste'])
                     integrantes = integrantes_paste if integrantes_paste else eq['integrantes_excel']
                     
-                    # Layout en 2 columnas compactas (3 Pokémon a la izquierda y 3 a la derecha)
                     p_col1, p_col2 = st.columns(2)
                     
                     for idx, item in enumerate(integrantes):
