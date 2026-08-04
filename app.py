@@ -127,7 +127,7 @@ def cargar_todas_las_hojas():
                 row_full[0] = str(r['code'] or "")
                 row_full[1] = str(r['owner'] or "")
                 row_full[2] = str(r['description'] or "")
-                row_full[3] = str(r['pokepaste'] or "") # <--- Aquí ya se inyecta correctamente el link del pokepaste
+                row_full[3] = str(r['pokepaste'] or "")
                 
                 objs = [r['o1'], r['o2'], r['o3'], r['o4'], r['o5'], r['o6']]
                 idxs_o = [7, 10, 13, 16, 19, 22]
@@ -396,12 +396,11 @@ with tab_buscar:
                                 if idx != 2 and idx != 5:
                                     st.markdown("---")
 
-# ==================== PESTAÑA 2: AÑADIR EQUIPO ====================
+# ==================== PESTAÑA 2: AÑADIR Y GESTIONAR EQUIPOS ====================
 with tab_anadir:
     st.subheader("📥 Añadir Nuevo Equipo")
     st.markdown("Introduce los **6 Pokémon** y sus respectivos **Objetos ordenados**, o impórtalos automáticamente desde Pokepaste.")
     
-    # Campo global de Pokepaste para que se quede guardado al importar o escribirlo manualmente
     paste_final_url = st.text_input("🔗 Enlace de Pokepaste (para guardar y consultar los EVs):", key="input_url_paste_global")
 
     with st.expander("🔗 Rellenar slots automáticamente pegando el link arriba"):
@@ -472,7 +471,7 @@ with tab_anadir:
                     owner_in,
                     desc_in,
                     code_in,
-                    paste_final_url,  # <--- Aquí se guarda correctamente en la base de datos local
+                    paste_final_url,
                     slots_a_guardar[0][0], slots_a_guardar[0][1],
                     slots_a_guardar[1][0], slots_a_guardar[1][1],
                     slots_a_guardar[2][0], slots_a_guardar[2][1],
@@ -490,3 +489,36 @@ with tab_anadir:
                 st.rerun()
             except Exception as ex:
                 st.error(f"Error al guardar: {ex}")
+
+    st.divider()
+    st.subheader("🗑️ Gestionar / Borrar Equipos Locales Guardados")
+    
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        df_local_admin = pd.read_sql_query("SELECT id, owner, description, code FROM equipos_locales", conn)
+        conn.close()
+
+        if df_local_admin.empty:
+            st.info("No hay ningún equipo guardado localmente en este momento.")
+        else:
+            for _, row_eq in df_local_admin.iterrows():
+                eq_id = row_eq['id']
+                eq_owner = row_eq['owner'] if row_eq['owner'] else "Sin autor"
+                eq_desc = row_eq['description'] if row_eq['description'] else "Sin descripción"
+                eq_code = row_eq['code'] if row_eq['code'] else "Sin código"
+
+                col_info, col_del = st.columns([4, 1])
+                with col_info:
+                    st.markdown(f"**ID {eq_id}** | 👤 **{eq_owner}** — 📝 *{eq_desc}* (Código: `{eq_code}`)")
+                with col_del:
+                    if st.button("🗑️ Borrar", key=f"btn_del_{eq_id}"):
+                        conn = sqlite3.connect(DB_NAME)
+                        cursor = conn.cursor()
+                        cursor.execute("DELETE FROM equipos_locales WHERE id = ?", (eq_id,))
+                        conn.commit()
+                        conn.close()
+                        st.success(f"Equipo ID {eq_id} borrado correctamente.")
+                        st.cache_data.clear()
+                        st.rerun()
+    except Exception as e:
+        st.warning("Aún no se ha creado la tabla local o está vacía.")
