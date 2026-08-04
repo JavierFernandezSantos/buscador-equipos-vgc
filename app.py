@@ -3,6 +3,7 @@ import pandas as pd
 import re
 import requests
 import os
+import sqlite3
 
 st.set_page_config(page_title="Comparador y Gestor de Equipos VGC", page_icon="🎮", layout="wide")
 
@@ -20,17 +21,43 @@ with col_left:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 with col_title:
     st.title("Comparador y Gestor de Equipos VGC")
-    st.markdown("Busca coincidencia estructurada por **6 Pokémon (AL-AQ) con sus respectivos Objetos (H, K, N, Q, T, W)**, o añade nuevos equipos.")
+    st.markdown("Busca coincidencia estructurada por **6 Pokémon con sus respectivos Objetos**, o añade nuevos equipos.")
 with col_right:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 
 st.divider()
 
-# ==================== CONFIGURACIÓN DE HOJAS ====================
+# ==================== CONFIGURACIÓN DE BASE DE DATOS LOCAL (SQLITE) ====================
+DB_NAME = "equipos_vgc.db"
+
+def inicializar_db():
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''
+        CREATE TABLE IF NOT EXISTS equipos_locales (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            pestana TEXT,
+            owner TEXT,
+            description TEXT,
+            code TEXT,
+            pokepaste TEXT,
+            p1 TEXT, o1 TEXT,
+            p2 TEXT, o2 TEXT,
+            p3 TEXT, o3 TEXT,
+            p4 TEXT, o4 TEXT,
+            p5 TEXT, o5 TEXT,
+            p6 TEXT, o6 TEXT
+        )
+    ''')
+    conn.commit()
+    conn.close()
+
+inicializar_db()
+
+# ==================== CONFIGURACIÓN DE HOJAS EXTERNAS ====================
 ID_MAESTRA = "1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw"
 ID_PERSONAL = "1Lc0ZBfprfKB7Mn2Iapu9Q9v195aMIfX4gDylh7sbvRU"
 GID_ESPECIFICO = "1458357160"
-WEBHOOK_URL = "https://script.google.com/macros/s/AKfycbwEr6dhKoCngNj7S2560rQMGabdXeUwex--ywdaaXsy0u__zvwkFkDVUP0oYxGjzANA/exec"
 
 BANNER_KEYWORDS = [
     "click here", "twitter", "discord", "featured teams", "replica code",
@@ -88,14 +115,57 @@ def cargar_todas_las_hojas():
             except Exception:
                 pass
 
+    # Añadimos los equipos guardados localmente en SQLite como una pestaña o DataFrame adicional
+    try:
+        conn = sqlite3.connect(DB_NAME)
+        df_local = pd.read_sql_query("SELECT * FROM equipos_locales", conn)
+        conn.close()
+        if not df_local.empty:
+            # Transformamos el formato local para que sea compatible con el lector de equipos
+            # Columnas mapeadas: [id, pestana, owner, description, code, pokepaste, p1, o1, p2, o2, p3, o3, p4, o4, p5, o5, p6, o6]
+            filas_sintetizadas = []
+            for _, r in df_local.iterrows():
+                row_data = [r['code'], r['owner'], r['description'], r['pokepaste']]
+                # Rellenar hasta llegar a los índices de objetos y pokémons esperados o adaptarlos
+                # Para simplificar, creamos una estructura de fila vacía de tamaño 50 y colocamos los datos en sus índices exactos
+                row_full = [""] * 50
+                row_full[0] = str(r['code'] or "")
+                row_full[1] = str(r['owner'] or "")
+                row_full[2] = str(r['description'] or "")
+                row_full[3] = str(r['pokepaste'] or "")
+                
+                # Objetos en H, K, N, Q, T, W (índices 7, 10, 13, 16, 19, 22)
+                objs = [r['o1'], r['o2'], r['o3'], r['o4'], r['o5'], r['o6']]
+                idxs_o = [7, 10, 13, 16, 19, 22]
+                for idx_col, val_obj in zip(idxs_o, objs):
+                    if val_obj: row_full[idx_col] = val_obj
+                
+                # Pokémon en AL hasta AQ (índices 37 al 42)
+                pokes = [r['p1'], r['p2'], r['p3'], r['p4'], r['p5'], r['p6']]
+                idxs_p = [37, 38, 39, 40, 41, 42]
+                for idx_col, val_poke in zip(idxs_p, pokes):
+                    if val_poke: row_full[idx_col] = val_poke
+                
+                filas_sintetizadas.append(row_full)
+            
+            if filas_sintetizadas:
+                df_loc_mapped = pd.DataFrame(filas_sintetizadas)
+                pestana_nombre = "Equipos Añadidos Localmente 📥"
+                if pestana_nombre in dict_dfs:
+                    dict_dfs[pestana_nombre] = pd.concat([dict_dfs[pestana_nombre], df_loc_mapped], ignore_index=True)
+                else:
+                    dict_dfs[pestana_nombre] = df_loc_mapped
+    except Exception as ex:
+        st.sidebar.warning(f"Nota base local: {ex}")
+
     return dict_dfs
 
 try:
-    with st.spinner("⚡ Cargando base de datos a alta velocidad..."):
+    with st.spinner("⚡ Cargando base de datos..."):
         hojas_cargadas = cargar_todas_las_hojas()
     st.sidebar.success(f"✅ Base de datos cargada correctamente.")
 except Exception as e:
-    st.sidebar.error(f"❌ Error al conectar con las hojas de cálculo: {e}")
+    st.sidebar.error(f"❌ Error al cargar los datos: {e}")
     st.stop()
 
 def parsear_texto_pokepaste(texto):
@@ -168,7 +238,6 @@ def parsear_pokepaste_estricto(url_paste):
 def procesar_equipos_rapido(_dict_dfs):
     equipos = []
     for nombre_pestaña, df in _dict_dfs.items():
-        # Fila 4 en adelante (índice 3 en Pandas)
         df_equipos = df.iloc[3:] if len(df) > 3 else df
         for idx_fila, row in df_equipos.iterrows():
             valores_fila = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() != '']
@@ -184,9 +253,7 @@ def procesar_equipos_rapido(_dict_dfs):
                     if not es_texto_invalido(val):
                         replica_code = val
 
-            # 1. POKÉMON: Columnas AL hasta AQ (Índices 37 al 42)
             indices_pokes = [37, 38, 39, 40, 41, 42]
-            # 2. OBJETOS: Columnas H, K, N, Q, T, W (Índices 7, 10, 13, 16, 19, 22)
             indices_objs = [7, 10, 13, 16, 19, 22]
 
             integrantes_excel = []
@@ -267,7 +334,6 @@ with tab_buscar:
     with col1: query_slots.append(render_slot_box(1))
     with col2: query_slots.append(render_slot_box(2))
     with col3: query_slots.append(render_slot_box(3))
-
     with col4: query_slots.append(render_slot_box(4))
     with col5: query_slots.append(render_slot_box(5))
     with col6: query_slots.append(render_slot_box(6))
@@ -409,13 +475,13 @@ with tab_anadir:
     desc_in = st.text_input("📝 Descripción / Torneo:", placeholder="Ej: Top 8 Regional")
     paste_final_url = st.text_input("🔗 Enlace de Pokepaste (Opcional para guardar):")
 
-    st.markdown("### 🔴 Configura los 6 Pokémon (AL-AQ) y sus Objetos (H, K, N, Q, T, W)")
+    st.markdown("### 🔴 Configura los 6 Pokémon y sus Objetos")
 
     def render_add_slot(slot_num):
         with st.container(border=True):
             st.markdown(f"**Slot {slot_num}**")
-            p_val = st.text_input(f"Pokémon {slot_num} (Col. AL-AQ):", key=f"add_p_{slot_num}", placeholder=f"Ej: Incineroar")
-            o_val = st.text_input(f"Objeto {slot_num} (Col. H/K/N/Q/T/W):", key=f"add_o_{slot_num}", placeholder=f"Ej: Sitrus Berry")
+            p_val = st.text_input(f"Pokémon {slot_num}:", key=f"add_p_{slot_num}", placeholder=f"Ej: Incineroar")
+            o_val = st.text_input(f"Objeto {slot_num}:", key=f"add_o_{slot_num}", placeholder=f"Ej: Sitrus Berry")
             return p_val.strip(), o_val.strip()
 
     acol1, acol2, acol3 = st.columns(3)
@@ -429,32 +495,42 @@ with tab_anadir:
     with acol5: slots_a_guardar.append(render_add_slot(5))
     with acol6: slots_a_guardar.append(render_add_slot(6))
 
-    if st.button("⚡ Guardar Equipo en Google Sheets", type="primary", use_container_width=True):
+    if st.button("⚡ Guardar Equipo Localmente", type="primary", use_container_width=True):
         pokes_lista = [p for p, o in slots_a_guardar if p != ""]
-        objs_lista = [o for p, o in slots_a_guardar if p != ""]
-
+        
         if not pokes_lista:
             st.error("⚠️ Debes introducir al menos un Pokémon para guardar el equipo.")
         else:
-            payload = {
-                "pestaña": reg_target,
-                "owner": owner_in,
-                "description": desc_in,
-                "code": code_in,
-                "pokepaste": paste_final_url,
-                "pokemons": pokes_lista,
-                "objetos": objs_lista
-            }
             try:
-                with st.spinner("Guardando en tu Google Sheet..."):
-                    res = requests.post(WEBHOOK_URL, json=payload, timeout=8)
+                conn = sqlite3.connect(DB_NAME)
+                cursor = conn.cursor()
                 
-                if res.status_code == 200 and "success" in res.text:
-                    st.balloons()
-                    st.success("🎉 ¡Equipo guardado con éxito en tu Google Sheet personal!")
-                    st.cache_data.clear()
-                    st.info("🔄 Se ha actualizado la base de datos.")
-                else:
-                    st.error(f"Error al guardar en Google Sheets: {res.text}")
+                cursor.execute('''
+                    INSERT INTO equipos_locales (
+                        pestana, owner, description, code, pokepaste,
+                        p1, o1, p2, o2, p3, o3, p4, o4, p5, o5, p6, o6
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ''', (
+                    reg_target,
+                    owner_in,
+                    desc_in,
+                    code_in,
+                    paste_final_url,
+                    slots_a_guardar[0][0], slots_a_guardar[0][1],
+                    slots_a_guardar[1][0], slots_a_guardar[1][1],
+                    slots_a_guardar[2][0], slots_a_guardar[2][1],
+                    slots_a_guardar[3][0], slots_a_guardar[3][1],
+                    slots_a_guardar[4][0], slots_a_guardar[4][1],
+                    slots_a_guardar[5][0], slots_a_guardar[5][1]
+                ))
+                
+                conn.commit()
+                conn.close()
+
+                st.balloons()
+                st.success("🎉 ¡Equipo guardado con éxito al instante!")
+                st.cache_data.clear()
+                st.info("🔄 Actualizando base de datos...")
+                st.rerun()
             except Exception as ex:
-                st.error(f"Error de conexión con el script de Google: {ex}")
+                st.error(f"Error al guardar: {ex}")
