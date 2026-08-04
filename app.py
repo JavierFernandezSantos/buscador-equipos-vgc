@@ -29,6 +29,7 @@ st.divider()
 # ==================== CONFIGURACIÓN DE HOJAS ====================
 ID_MAESTRA = "1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw"
 ID_PERSONAL = "1Lc0ZBfprfKB7Mn2Iapu9Q9v195aMIfX4gDylh7sbvRU"
+GID_ESPECIFICO = "1458357160"
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycby27VNNFJJN6dfqYSv0fR5T64Y2n0ZYrbQdq7rJwM2xXEc3t0hZcgp3TjdmMsPVMCgs/exec"
 
 BANNER_KEYWORDS = [
@@ -51,23 +52,37 @@ def es_texto_invalido(val):
 @st.cache_data(ttl=3600, show_spinner=False)
 def cargar_todas_las_hojas():
     dict_dfs = {}
-    url_m = f"https://docs.google.com/sheets/d/{ID_MAESTRA}/gviz/tq?tqx=out:csv"
+    
+    url_m = f"https://docs.google.com/spreadsheets/d/{ID_MAESTRA}/export?format=csv&gid={GID_ESPECIFICO}"
     try:
         df_m = pd.read_csv(url_m, header=None)
-        dict_dfs["Regulación Principal"] = df_m
+        dict_dfs["Regulación Principal (Maestra)"] = df_m
     except Exception as e:
-        st.warning(f"⚠️ No se pudo leer la hoja maestra: {e}")
+        try:
+            url_m_alt = f"https://docs.google.com/spreadsheets/d/{ID_MAESTRA}/export?format=csv"
+            df_m = pd.read_csv(url_m_alt, header=None)
+            dict_dfs["Regulación Principal (Maestra)"] = df_m
+        except Exception as e2:
+            st.warning(f"⚠️ No se pudo leer la hoja maestra: {e2}")
 
     if ID_PERSONAL and ID_PERSONAL.strip():
-        url_p = f"https://docs.google.com/sheets/d/{ID_PERSONAL}/gviz/tq?tqx=out:csv"
+        url_p = f"https://docs.google.com/spreadsheets/d/{ID_PERSONAL}/export?format=csv&gid={GID_ESPECIFICO}"
         try:
             df_p = pd.read_csv(url_p, header=None)
-            if "Regulación Principal" in dict_dfs:
-                dict_dfs["Regulación Principal"] = pd.concat([dict_dfs["Regulación Principal"], df_p], ignore_index=True)
+            if "Regulación Principal (Maestra)" in dict_dfs:
+                dict_dfs["Regulación Principal (Maestra)"] = pd.concat([dict_dfs["Regulación Principal (Maestra)"], df_p], ignore_index=True)
             else:
-                dict_dfs["Regulación Principal"] = df_p
+                dict_dfs["Regulación Principal (Maestra)"] = df_p
         except Exception:
-            pass
+            try:
+                url_p_alt = f"https://docs.google.com/spreadsheets/d/{ID_PERSONAL}/export?format=csv"
+                df_p = pd.read_csv(url_p_alt, header=None)
+                if "Regulación Principal (Maestra)" in dict_dfs:
+                    dict_dfs["Regulación Principal (Maestra)"] = pd.concat([dict_dfs["Regulación Principal (Maestra)"], df_p], ignore_index=True)
+                else:
+                    dict_dfs["Regulación Principal (Maestra)"] = df_p
+            except Exception:
+                pass
 
     return dict_dfs
 
@@ -164,7 +179,6 @@ def procesar_equipos_rapido(_dict_dfs):
                     if not es_texto_invalido(val):
                         replica_code = val
 
-            # Extraer Pokémon y objetos respetando el orden estricto de las columnas del Excel
             candidatos_pokes = []
             for val in reversed(valores_fila):
                 if not es_texto_invalido(val) and len(val) > 2:
@@ -206,7 +220,7 @@ def procesar_equipos_rapido(_dict_dfs):
 equipos_db = procesar_equipos_rapido(hojas_cargadas)
 pestañas_disponibles = list(hojas_cargadas.keys())
 
-tab_buscar, tab_anadir = st.tabs(["🔍 Buscar Coincidencias de Equipos", "➕ Añadir Nuevo Equipo (vía Pokepaste)"])
+tab_buscar, tab_anadir = st.tabs(["🔍 Buscar Coincidencias de Equipos", "➕ Añadir Nuevo Equipo"])
 
 # ==================== PESTAÑA 1: BUSCADOR ====================
 with tab_buscar:
@@ -336,7 +350,6 @@ with tab_buscar:
                             moves = item.get('movimientos', [])
                             poke_clean = item['clean_poke']
 
-                            # Resaltar si coincide con la búsqueda
                             es_match = any(
                                 (s['pokemon'] and re.sub(r'[^a-z0-9]', '', s['pokemon'].lower()) in poke_clean)
                                 for s in active_slots
@@ -354,35 +367,67 @@ with tab_buscar:
 
 # ==================== PESTAÑA 2: AÑADIR EQUIPO ====================
 with tab_anadir:
-    st.subheader("📥 Añadir o Importar Equipo desde Pokepaste")
-    st.markdown("Pega el enlace de Pokepaste para importarlo automáticamente a **Tu Google Sheet**.")
+    st.subheader("📥 Añadir Nuevo Equipo")
+    st.markdown("Puedes rellenar directamente los **6 Slots de Pokémon y Objetos ordenados**, o importar automáticamente mediante un enlace de Pokepaste.")
     
-    col_input1, col_input2 = st.columns(2)
-    with col_input1:
-        paste_url_in = st.text_input("🔗 Enlace de Pokepaste (ejemplo: https://pokepast.es/abcde):")
-        owner_in = st.text_input("👤 Creador / Jugador del Equipo:", placeholder="Ej: Ray Rizzo")
+    # Opción alternativa rápida: Pokepaste
+    with st.expander("🔗 Opción Alternativa: Importar automáticamente desde Pokepaste"):
+        paste_url_in = st.text_input("Enlace de Pokepaste (ej: https://pokepast.es/abcde):")
+        if st.button("Rellenar campos desde Pokepaste"):
+            if paste_url_in.strip():
+                parsed_auto = parsear_pokepaste_estricto(paste_url_in.strip())
+                if parsed_auto:
+                    for i, p_info in enumerate(parsed_auto[:6]):
+                        st.session_state[f"add_p_{i+1}"] = p_info['pokemon']
+                        st.session_state[f"add_o_{i+1}"] = p_info['objeto']
+                    st.success("¡Datos cargados en los slots de abajo con éxito!")
+                    st.rerun()
+                else:
+                    st.error("No se pudo leer el Pokepaste.")
+            else:
+                st.warning("Introduce un enlace válido.")
+
+    st.divider()
+
+    col_meta1, col_meta2, col_meta3 = st.columns(3)
+    with col_meta1:
+        owner_in = st.text_input("👤 Creador / Jugador:", placeholder="Ej: Ray Rizzo")
+    with col_meta2:
         code_in = st.text_input("🎮 Código de Préstamo (Rental Code):", placeholder="Ej: MB1234")
-    
-    with col_input2:
-        reg_target = st.selectbox("📌 Pestaña / Regulación de destino:", pestañas_disponibles)
-        desc_in = st.text_input("📝 Descripción / Torneo:", placeholder="Ej: Top 8 Regional")
-        paste_raw_text = st.text_area("O pega el texto Showdown directamente si no tienes link:", height=100)
+    with col_meta3:
+        reg_target = st.selectbox("📌 Regulación / Destino:", pestañas_disponibles)
 
-    if st.button("⚡ Procesar y Guardar en Google Sheets", type="primary"):
-        parsed_pokes = None
-        paste_final_url = paste_url_in.strip()
-        
-        if paste_url_in.strip():
-            parsed_pokes = parsear_pokepaste_estricto(paste_url_in.strip())
-        elif paste_raw_text.strip():
-            parsed_pokes = parsear_texto_pokepaste(paste_raw_text.strip())
-            
-        if not parsed_pokes:
-            st.error("⚠️ No se pudieron extraer Pokémon del enlace o texto introducido.")
+    desc_in = st.text_input("📝 Descripción / Torneo:", placeholder="Ej: Top 8 Regional")
+    paste_final_url = st.text_input("🔗 Enlace de Pokepaste (Opcional para guardar):")
+
+    st.markdown("### 🔴 Configura los 6 Pokémon y sus Objetos en orden estricto")
+
+    def render_add_slot(slot_num):
+        with st.container(border=True):
+            st.markdown(f"**Slot {slot_num}**")
+            p_val = st.text_input(f"Pokémon {slot_num}:", key=f"add_p_{slot_num}", placeholder=f"Ej: Incineroar")
+            o_val = st.text_input(f"Objeto {slot_num}:", key=f"add_o_{slot_num}", placeholder=f"Ej: Sitrus Berry")
+            return p_val.strip(), o_val.strip()
+
+    acol1, acol2, acol3 = st.columns(3)
+    acol4, acol5, acol6 = st.columns(3)
+
+    slots_a_guardar = []
+    with acol1: slots_a_guardar.append(render_add_slot(1))
+    with acol2: slots_a_guardar.append(render_add_slot(2))
+    with acol3: slots_a_guardar.append(render_add_slot(3))
+    with acol4: slots_a_guardar.append(render_add_slot(4))
+    with acol5: slots_a_guardar.append(render_add_slot(5))
+    with acol6: slots_a_guardar.append(render_add_slot(6))
+
+    if st.button("⚡ Guardar Equipo en Google Sheets", type="primary", use_container_width=True):
+        # Filtrar solo los Pokémon que no estén vacíos
+        pokes_lista = [p for p, o in slots_a_guardar if p != ""]
+        objs_lista = [o for p, o in slots_a_guardar if p != ""]
+
+        if not pokes_lista:
+            st.error("⚠️ Debes introducir al menos un Pokémon para guardar el equipo.")
         else:
-            pokes_lista = [item['pokemon'] for item in parsed_pokes]
-            objs_lista = [item['objeto'] for item in parsed_pokes]
-
             payload = {
                 "pestaña": reg_target,
                 "owner": owner_in,
@@ -400,7 +445,7 @@ with tab_anadir:
                     st.balloons()
                     st.success("🎉 ¡Equipo guardado con éxito en tu Google Sheet personal!")
                     st.cache_data.clear()
-                    st.info("🔄 Se ha actualizado la base de datos. Ya puedes buscar este equipo en el buscador.")
+                    st.info("🔄 Se ha actualizado la base de datos.")
                 else:
                     st.error(f"Error al guardar en Google Sheets: {res.text}")
             except Exception as ex:
