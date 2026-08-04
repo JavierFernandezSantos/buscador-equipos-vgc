@@ -4,10 +4,8 @@ import re
 import requests
 import os
 
-# Configuración de la página
 st.set_page_config(page_title="Comparador y Gestor de Equipos VGC", page_icon="🎮", layout="wide")
 
-# Cabecera con Imagen de Pokémon Champions
 IMAGE_URL = "https://assets.pokemon.com/static-assets/content-assets/cms2/img/trading-card-game/_articles/champions/pokemon-champions-169.jpg"
 
 if os.path.exists("logo.jpg"):
@@ -17,25 +15,25 @@ elif os.path.exists("logo.png"):
 else:
     st.image(IMAGE_URL, width=380)
 
-# Título flanqueado por dos Pokéballs
 col_left, col_title, col_right = st.columns([1, 8, 1])
-
 with col_left:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
-
 with col_title:
     st.title("Comparador y Gestor de Equipos VGC")
     st.markdown("Busca coincidencia de equipos o **añade nuevos equipos vía Pokepaste** al repositorio.")
-
 with col_right:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 
 st.divider()
 
-EXCEL_URL = "https://docs.google.com/spreadsheets/d/1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw/export?format=xlsx"
+# ==================== CONFIGURACIÓN DE HOJAS ====================
+EXCEL_URL_MAESTRA = "https://docs.google.com/spreadsheets/d/1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw/export?format=xlsx"
 
-# OPCIONAL: Poner aquí la URL de Google Apps Script si quieres guardar directamente al Excel
-WEBHOOK_URL = "" 
+# Hoja Personal de Google Sheets
+EXCEL_URL_PERSONAL = "https://docs.google.com/spreadsheets/d/1Lc0ZBfprfKB7Mn2Iapu9Q9v195aMIfX4gDylh7sbvRU/export?format=xlsx"
+
+# Webhook Apps Script
+WEBHOOK_URL = "https://script.google.com/macros/s/AKfycby27VNNFJJN6dfqYSv0fR5T64Y2n0ZYrbQdq7rJwM2xXEc3t0hZcgp3TjdmMsPVMCgs/exec"
 
 BANNER_KEYWORDS = [
     "click here", "twitter", "discord", "featured teams", "replica code",
@@ -56,26 +54,43 @@ def es_texto_invalido(val):
 
 @st.cache_data(ttl=300)
 def cargar_todas_las_hojas():
-    xls = pd.ExcelFile(EXCEL_URL)
-    hojas_mb = [sheet for sheet in xls.sheet_names if re.search(r'M\s*-\s*B|MB', sheet, re.IGNORECASE)]
     dict_dfs = {}
-    for sheet in hojas_mb:
-        dict_dfs[sheet] = xls.parse(sheet, header=None)
+    
+    # Cargar Hoja Maestra
+    try:
+        xls_m = pd.ExcelFile(EXCEL_URL_MAESTRA)
+        for sheet in xls_m.sheet_names:
+            if re.search(r'M\s*-\s*B|MB', sheet, re.IGNORECASE):
+                dict_dfs[sheet] = xls_m.parse(sheet, header=None)
+    except Exception as e:
+        st.warning(f"⚠️ No se pudo leer la hoja maestra: {e}")
+
+    # Cargar Hoja Personal
+    try:
+        xls_p = pd.ExcelFile(EXCEL_URL_PERSONAL)
+        for sheet in xls_p.sheet_names:
+            if re.search(r'M\s*-\s*B|MB', sheet, re.IGNORECASE):
+                df_p = xls_p.parse(sheet, header=None)
+                if sheet in dict_dfs:
+                    dict_dfs[sheet] = pd.concat([dict_dfs[sheet], df_p], ignore_index=True)
+                else:
+                    dict_dfs[sheet] = df_p
+    except Exception as e:
+        st.warning(f"⚠️ No se pudo leer tu hoja personal: {e}")
+
     return dict_dfs
 
 try:
-    with st.spinner("Cargando base de datos..."):
+    with st.spinner("Cargando base de datos de ambas hojas..."):
         hojas_cargadas = cargar_todas_las_hojas()
     st.sidebar.success(f"✅ {len(hojas_cargadas)} pestañas M-B cargadas.")
 except Exception as e:
-    st.sidebar.error(f"❌ Error al conectar con el Excel: {e}")
+    st.sidebar.error(f"❌ Error al conectar con las hojas de cálculo: {e}")
     st.stop()
 
-# Parseador estricto de Pokepaste (URL o Texto Raw)
 def parsear_texto_pokepaste(texto):
     bloques = re.split(r'\n\s*\n', texto.strip())
     integrantes = []
-    
     for b in bloques:
         lineas = [l.strip() for l in b.splitlines() if l.strip()]
         if not lineas:
@@ -121,7 +136,6 @@ def parsear_texto_pokepaste(texto):
             'movimientos': movimientos[:4],
             'clean_poke': re.sub(r'[^a-z0-9]', '', poke_name.lower())
         })
-        
     return integrantes
 
 @st.cache_data(ttl=600)
@@ -198,7 +212,6 @@ def procesar_equipos_rapido(_dict_dfs):
 equipos_db = procesar_equipos_rapido(hojas_cargadas)
 pestañas_disponibles = list(hojas_cargadas.keys())
 
-# MENÚ DE NAVEGACIÓN EN PESTAÑAS
 tab_buscar, tab_anadir = st.tabs(["🔍 Buscar Coincidencias de Equipos", "➕ Añadir Nuevo Equipo (vía Pokepaste)"])
 
 # ==================== PESTAÑA 1: BUSCADOR ====================
@@ -214,7 +227,6 @@ with tab_buscar:
     modo = st.radio("Selecciona el método de búsqueda:", ["✍️ Pegar Pokepaste o Nombres sueltos", "📋 Seleccionar Pokémon del menú"], horizontal=True)
 
     pokes_usuario = []
-
     if "Pegar" in modo:
         user_text = st.text_area("Pega aquí tu equipo o nombres (un Pokémon por línea):", height=140, placeholder="Incineroar\nArchaludon\nPelipper")
         if user_text:
@@ -259,16 +271,12 @@ with tab_buscar:
                 for res in resultados:
                     eq = res['team']
                     n_match = res['coincidencias']
-                    
                     titulo_expander = f"⭐ [{eq['pestaña']}] Equipo en Fila {eq['excel_row']} — Coincidencias: {n_match}/{len(pokes_usuario)}"
                     
                     with st.expander(titulo_expander, expanded=(n_match >= 2)):
                         bar_col1, bar_col2 = st.columns([2, 1])
                         with bar_col1:
-                            if eq['replica_code'] != "No disponible":
-                                st.markdown(f"🎮 **Código:** `{eq['replica_code']}`")
-                            else:
-                                st.markdown("🎮 **Código:** *No disponible*")
+                            st.markdown(f"🎮 **Código:** `{eq['replica_code']}`")
                         with bar_col2:
                             if eq['pokepaste']:
                                 st.link_button("🔗 Ver Pokepaste (EVs)", eq['pokepaste'])
@@ -279,10 +287,8 @@ with tab_buscar:
                         integrantes = integrantes_paste if integrantes_paste else eq['integrantes_excel']
                         
                         p_col1, p_col2 = st.columns(2)
-                        
                         for idx, item in enumerate(integrantes):
                             target_col = p_col1 if idx < 3 else p_col2
-                            
                             poke = item['pokemon']
                             obj = item['objeto']
                             nature = item.get('naturaleza', 'N/A')
@@ -292,7 +298,6 @@ with tab_buscar:
                             
                             es_match = any(u in poke_clean or poke_clean in u for u in clean_user)
                             ico = "🟢" if es_match else "⚪"
-                            
                             moves_str = " / ".join(moves) if moves else "*Sin ataques*"
                             
                             with target_col:
@@ -305,20 +310,20 @@ with tab_buscar:
 # ==================== PESTAÑA 2: AÑADIR EQUIPO ====================
 with tab_anadir:
     st.subheader("📥 Añadir o Importar Equipo desde Pokepaste")
-    st.markdown("Pega el enlace de **Pokepaste** o el texto raw exportado de Showdown para preparar e importar el equipo a la base de datos.")
+    st.markdown("Pega el enlace de Pokepaste para importarlo automáticamente a **Tu Google Sheet**.")
     
     col_input1, col_input2 = st.columns(2)
     with col_input1:
         paste_url_in = st.text_input("🔗 Enlace de Pokepaste (ejemplo: https://pokepast.es/abcde):")
         owner_in = st.text_input("👤 Creador / Jugador del Equipo:", placeholder="Ej: Ray Rizzo")
-        code_in = st.text_input("🎮 Código de Préstamo (Rental Code):", placeholder="Ej: MB1234 / ABCD12")
+        code_in = st.text_input("🎮 Código de Préstamo (Rental Code):", placeholder="Ej: MB1234")
     
     with col_input2:
-        reg_target = st.selectbox("📌 Selecciona Pestaña / Regulación de destino:", pestañas_disponibles)
-        desc_in = st.text_input("📝 Descripción / Torneo:", placeholder="Ej: Top 8 Regional Baltimore")
+        reg_target = st.selectbox("📌 Pestaña / Regulación de destino:", pestañas_disponibles)
+        desc_in = st.text_input("📝 Descripción / Torneo:", placeholder="Ej: Top 8 Regional")
         paste_raw_text = st.text_area("O pega el texto Showdown directamente si no tienes link:", height=100)
 
-    if st.button("⚡ Procesar y Analizar Pokepaste", type="primary"):
+    if st.button("⚡ Procesar y Guardar en Google Sheets", type="primary"):
         parsed_pokes = None
         paste_final_url = paste_url_in.strip()
         
@@ -328,53 +333,30 @@ with tab_anadir:
             parsed_pokes = parsear_texto_pokepaste(paste_raw_text.strip())
             
         if not parsed_pokes:
-            st.error("⚠️ No se pudieron extraer Pokémon del enlace o texto introducido. Verifica que el Pokepaste sea correcto.")
+            st.error("⚠️ No se pudieron extraer Pokémon del enlace o texto introducido.")
         else:
-            st.success(f"✅ Se detectaron correctamente {len(parsed_pokes)} Pokémon.")
-            
-            st.write("### 📋 Vista Previa del Equipo Importado:")
-            pv_col1, pv_col2 = st.columns(2)
-            
-            pokes_lista = []
-            objs_lista = []
-            
-            for idx, item in enumerate(parsed_pokes):
-                pokes_lista.append(item['pokemon'])
-                objs_lista.append(item['objeto'])
-                
-                target_col = pv_col1 if idx < 3 else pv_col2
-                moves_str = " / ".join(item['movimientos']) if item['movimientos'] else "Sin ataques"
-                with target_col:
-                    st.markdown(f"**{idx+1}. {item['pokemon']}** @ `{item['objeto']}`")
-                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;🎭 `{item['naturaleza']}` | 🧬 `{item['habilidad']}`")
-                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚔️ `{moves_str}`")
-                    st.markdown("---")
+            pokes_lista = [item['pokemon'] for item in parsed_pokes]
+            objs_lista = [item['objeto'] for item in parsed_pokes]
 
-            st.divider()
-            
-            if WEBHOOK_URL:
-                payload = {
-                    "pestaña": reg_target,
-                    "owner": owner_in,
-                    "description": desc_in,
-                    "code": code_in,
-                    "pokepaste": paste_final_url,
-                    "pokemons": pokes_lista,
-                    "objetos": objs_lista
-                }
-                try:
-                    res = requests.post(WEBHOOK_URL, json=payload, timeout=5)
-                    if res.status_code == 200:
-                        st.balloons()
-                        st.success("🎉 ¡Equipo añadido correctamente a Google Sheets!")
-                    else:
-                        st.error(f"Error al enviar al script de Google: {res.text}")
-                except Exception as ex:
-                    st.error(f"Error de conexión con el Webhook: {ex}")
-            else:
-                st.subheader("📋 Fila preparada para copiar en Google Sheets:")
-                st.info("Copia el texto del cuadro inferior y pégalo como una nueva fila en tu Excel:")
+            payload = {
+                "pestaña": reg_target,
+                "owner": owner_in,
+                "description": desc_in,
+                "code": code_in,
+                "pokepaste": paste_final_url,
+                "pokemons": pokes_lista,
+                "objetos": objs_lista
+            }
+            try:
+                with st.spinner("Guardando en tu Google Sheet..."):
+                    res = requests.post(WEBHOOK_URL, json=payload, timeout=8)
                 
-                fila_excel_str = f"{code_in}\t{owner_in}\t{desc_in}\t{paste_final_url}\t" + "\t".join(objs_lista) + "\t" + "\t".join(pokes_lista)
-                st.code(fila_excel_str)
-                    
+                if res.status_code == 200 and "success" in res.text:
+                    st.balloons()
+                    st.success("🎉 ¡Equipo guardado con éxito en tu Google Sheet personal!")
+                    st.cache_data.clear()
+                    st.info("🔄 Se ha actualizado la base de datos. Ya puedes buscar este equipo en el buscador.")
+                else:
+                    st.error(f"Error al guardar en Google Sheets: {res.text}")
+            except Exception as ex:
+                st.error(f"Error de conexión con el script de Google: {ex}")
