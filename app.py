@@ -20,7 +20,7 @@ with col_left:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 with col_title:
     st.title("Comparador y Gestor de Equipos VGC")
-    st.markdown("Busca coincidencia de equipos o **añade nuevos equipos vía Pokepaste** al repositorio.")
+    st.markdown("Busca coincidencia por **Pokémon, Objetos y Ataques**, o añade nuevos equipos vía Pokepaste.")
 with col_right:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 
@@ -28,11 +28,7 @@ st.divider()
 
 # ==================== CONFIGURACIÓN DE HOJAS ====================
 EXCEL_URL_MAESTRA = "https://docs.google.com/spreadsheets/d/1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw/export?format=xlsx"
-
-# Hoja Personal de Google Sheets
 EXCEL_URL_PERSONAL = "https://docs.google.com/spreadsheets/d/1Lc0ZBfprfKB7Mn2Iapu9Q9v195aMIfX4gDylh7sbvRU/export?format=xlsx"
-
-# Webhook Apps Script
 WEBHOOK_URL = "https://script.google.com/macros/s/AKfycby27VNNFJJN6dfqYSv0fR5T64Y2n0ZYrbQdq7rJwM2xXEc3t0hZcgp3TjdmMsPVMCgs/exec"
 
 BANNER_KEYWORDS = [
@@ -55,7 +51,6 @@ def es_texto_invalido(val):
 @st.cache_data(ttl=300)
 def cargar_todas_las_hojas():
     dict_dfs = {}
-    
     # Cargar Hoja Maestra
     try:
         xls_m = pd.ExcelFile(EXCEL_URL_MAESTRA)
@@ -224,10 +219,17 @@ with tab_buscar:
             todos_pokes_set.add(item['pokemon'])
     lista_todos_pokes = sorted(list(todos_pokes_set))
 
-    modo = st.radio("Selecciona el método de búsqueda:", ["✍️ Pegar Pokepaste o Nombres sueltos", "📋 Seleccionar Pokémon del menú"], horizontal=True)
+    modo = st.radio("Selecciona el método de búsqueda de Pokémon:", ["📋 Buscar en lista desplegable (Escribe para auto-completar)", "✍️ Pegar texto directo"], horizontal=True)
 
     pokes_usuario = []
-    if "Pegar" in modo:
+    if "lista" in modo:
+        pokes_usuario = st.multiselect(
+            "Escribe para buscar (ej. 'Chari') y selecciona de 1 a 6 Pokémon:",
+            options=lista_todos_pokes,
+            max_selections=6,
+            placeholder="Empieza a escribir el nombre del Pokémon..."
+        )
+    else:
         user_text = st.text_area("Pega aquí tu equipo o nombres (un Pokémon por línea):", height=140, placeholder="Incineroar\nArchaludon\nPelipper")
         if user_text:
             for l in user_text.split('\n'):
@@ -238,18 +240,20 @@ with tab_buscar:
                 nombre = re.sub(r'\s*\([MFmf]\)', '', nombre).strip()
                 if nombre and not es_texto_invalido(nombre):
                     pokes_usuario.append(nombre)
-    else:
-        pokes_usuario = st.multiselect("Busca y selecciona Pokémon:", options=lista_todos_pokes, max_selections=6)
+
+    # NUEVO: Filtro opcional por Ataques / Movimientos
+    ataque_usuario = st.text_input("⚔️ Filtrar también por Ataque / Movimiento (Opcional):", placeholder="Ej: Tailwind, Protect, Trick Room, Heat Wave...")
 
     if st.button("🔍 Buscar Equipos Coincidentes", type="primary"):
-        if not pokes_usuario:
-            st.warning("⚠️ Introduce al menos un Pokémon para iniciar la búsqueda.")
+        if not pokes_usuario and not ataque_usuario.strip():
+            st.warning("⚠️ Selecciona al menos un Pokémon o escribe un ataque para buscar.")
         else:
             equipos_a_buscar = equipos_db
             if regulacion_sel != "Todas las Regulaciones (M-B)":
                 equipos_a_buscar = [eq for eq in equipos_db if eq['pestaña'] == regulacion_sel]
                 
             clean_user = [re.sub(r'[^a-z0-9]', '', p.lower()) for p in pokes_usuario]
+            attack_clean = re.sub(r'[^a-z0-9]', '', ataque_usuario.strip().lower())
             
             resultados = []
             for eq in equipos_a_buscar:
@@ -258,22 +262,44 @@ with tab_buscar:
                     if any(u in db_p or db_p in u for db_p in eq['clean_pokes']):
                         coincidencias += 1
                 
-                if coincidencias > 0:
-                    resultados.append({'team': eq, 'coincidencias': coincidencias})
+                tiene_ataque = True
+                integrantes_paste = None
+                
+                # Si el usuario especificó un ataque, verificamos los Pokepastes
+                if attack_clean:
+                    tiene_ataque = False
+                    if eq['pokepaste']:
+                        integrantes_paste = parsear_pokepaste_estricto(eq['pokepaste'])
+                        if integrantes_paste:
+                            for poke in integrantes_paste:
+                                for mov in poke.get('movimientos', []):
+                                    if attack_clean in re.sub(r'[^a-z0-9]', '', mov.lower()):
+                                        tiene_ataque = True
+                                        break
+                                if tiene_ataque:
+                                    break
+                
+                if (coincidencias > 0 or (not clean_user and tiene_ataque)) and tiene_ataque:
+                    resultados.append({
+                        'team': eq,
+                        'coincidencias': coincidencias,
+                        'integrantes_paste': integrantes_paste
+                    })
             
             resultados.sort(key=lambda x: x['coincidencias'], reverse=True)
             
             st.write(f"### 🎯 Equipos Encontrados ({len(resultados)})")
             
             if not resultados:
-                st.error("No se encontraron equipos en las pestañas seleccionadas con esos Pokémon.")
+                st.error("No se encontraron equipos que coincidan con la combinación de Pokémon y ataques seleccionados.")
             else:
                 for res in resultados:
                     eq = res['team']
                     n_match = res['coincidencias']
-                    titulo_expander = f"⭐ [{eq['pestaña']}] Equipo en Fila {eq['excel_row']} — Coincidencias: {n_match}/{len(pokes_usuario)}"
+                    cant_solicitada = len(pokes_usuario) if pokes_usuario else 1
+                    titulo_expander = f"⭐ [{eq['pestaña']}] Equipo en Fila {eq['excel_row']} — Coincidencias: {n_match}/{cant_solicitada}"
                     
-                    with st.expander(titulo_expander, expanded=(n_match >= 2)):
+                    with st.expander(titulo_expander, expanded=(n_match >= 1)):
                         bar_col1, bar_col2 = st.columns([2, 1])
                         with bar_col1:
                             st.markdown(f"🎮 **Código:** `{eq['replica_code']}`")
@@ -283,8 +309,9 @@ with tab_buscar:
                         
                         st.divider()
 
-                        integrantes_paste = parsear_pokepaste_estricto(eq['pokepaste'])
-                        integrantes = integrantes_paste if integrantes_paste else eq['integrantes_excel']
+                        integrantes = res['integrantes_paste'] if res['integrantes_paste'] else parsear_pokepaste_estricto(eq['pokepaste'])
+                        if not integrantes:
+                            integrantes = eq['integrantes_excel']
                         
                         p_col1, p_col2 = st.columns(2)
                         for idx, item in enumerate(integrantes):
@@ -298,12 +325,22 @@ with tab_buscar:
                             
                             es_match = any(u in poke_clean or poke_clean in u for u in clean_user)
                             ico = "🟢" if es_match else "⚪"
-                            moves_str = " / ".join(moves) if moves else "*Sin ataques*"
+                            moves_str = " / ".join(moves) if moves else "*Sin ataques cargados*"
                             
+                            # Resaltar movimiento si coincide con la búsqueda
+                            if attack_clean and moves:
+                                moves_formatted = []
+                                for m in moves:
+                                    if attack_clean in re.sub(r'[^a-z0-9]', '', m.lower()):
+                                        moves_formatted.append(f"🔥 **{m}**")
+                                    else:
+                                        moves_formatted.append(m)
+                                moves_str = " / ".join(moves_formatted)
+
                             with target_col:
                                 st.markdown(f"{ico} **{idx+1}. {poke}** @ `{obj}`")
                                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;🎭 `{nature}` | 🧬 `{ability}`")
-                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚔️ `{moves_str}`")
+                                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚔️ {moves_str}")
                                 if idx != 2 and idx != 5:
                                     st.markdown("---")
 
