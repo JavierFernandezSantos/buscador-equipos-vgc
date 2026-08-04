@@ -495,7 +495,7 @@ with tab_anadir:
     
     try:
         conn = sqlite3.connect(DB_NAME)
-        df_local_admin = pd.read_sql_query("SELECT id, owner, description, code FROM equipos_locales", conn)
+        df_local_admin = pd.read_sql_query("SELECT * FROM equipos_locales", conn)
         conn.close()
 
         if df_local_admin.empty:
@@ -503,22 +503,39 @@ with tab_anadir:
         else:
             for _, row_eq in df_local_admin.iterrows():
                 eq_id = row_eq['id']
-                eq_owner = row_eq['owner'] if row_eq['owner'] else "Sin autor"
-                eq_desc = row_eq['description'] if row_eq['description'] else "Sin descripción"
-                eq_code = row_eq['code'] if row_eq['code'] else "Sin código"
+                eq_owner = row_eq['owner'] if row_eq['owner'] and row_eq['owner'].strip() else "Desconocido"
+                eq_desc = row_eq['description'] if row_eq['description'] and row_eq['description'].strip() else "Sin descripción"
+                eq_code = row_eq['code'] if row_eq['code'] and row_eq['code'].strip() else "Sin código"
+                eq_paste = row_eq['pokepaste'] if row_eq['pokepaste'] and row_eq['pokepaste'].strip() else None
 
-                col_info, col_del = st.columns([4, 1])
-                with col_info:
-                    st.markdown(f"**ID {eq_id}** | 👤 **{eq_owner}** — 📝 *{eq_desc}* (Código: `{eq_code}`)")
-                with col_del:
-                    if st.button("🗑️ Borrar", key=f"btn_del_{eq_id}"):
-                        conn = sqlite3.connect(DB_NAME)
-                        cursor = conn.cursor()
-                        cursor.execute("DELETE FROM equipos_locales WHERE id = ?", (eq_id,))
-                        conn.commit()
-                        conn.close()
-                        st.success(f"Equipo ID {eq_id} borrado correctamente.")
-                        st.cache_data.clear()
-                        st.rerun()
+                # Extraer los Pokémon guardados para mostrarlos visualmente en la tarjeta
+                pokes_equipo = [
+                    row_eq['p1'], row_eq['p2'], row_eq['p3'], 
+                    row_eq['p4'], row_eq['p5'], row_eq['p6']
+                ]
+                pokes_texto = " / ".join([p for p in pokes_equipo if p and str(p).strip()])
+
+                with st.container(border=True):
+                    col_info, col_del = st.columns([4, 1])
+                    with col_info:
+                        st.markdown(f"**ID: {eq_id}** | 👤 **{eq_owner}** | 📝 *{eq_desc}*")
+                        st.markdown(f"🛡️ **Pokémon:** `{pokes_texto}`")
+                        st.markdown(f"🎮 **Código:** `{eq_code}`")
+                        if eq_paste:
+                            st.markdown(f"🔗 **Pokepaste:** [Enlace directo]({eq_paste})")
+                        else:
+                            st.markdown("🔗 **Pokepaste:** *No añadido*")
+                    
+                    with col_del:
+                        st.write("") # Pequeño espacio vertical
+                        if st.button("🗑️ Borrar", key=f"btn_del_{eq_id}"):
+                            conn = sqlite3.connect(DB_NAME)
+                            cursor = conn.cursor()
+                            cursor.execute("DELETE FROM equipos_locales WHERE id = ?", (eq_id,))
+                            conn.commit()
+                            conn.close()
+                            st.success(f"Equipo ID {eq_id} borrado correctamente.")
+                            st.cache_data.clear()
+                            st.rerun()
     except Exception as e:
         st.warning("Aún no se ha creado la tabla local o está vacía.")
