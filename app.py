@@ -20,7 +20,7 @@ with col_left:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 with col_title:
     st.title("Comparador y Gestor de Equipos VGC")
-    st.markdown("Busca coincidencia estructurada por **6 Pokémon con sus respectivos Objetos ordenados**, o añade nuevos equipos.")
+    st.markdown("Busca coincidencia estructurada por **6 Pokémon (AL-AQ) con sus respectivos Objetos (H, K, N, Q, T, W)**, o añade nuevos equipos.")
 with col_right:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 
@@ -35,17 +35,21 @@ WEBHOOK_URL = "https://script.google.com/macros/s/AKfycby27VNNFJJN6dfqYSv0fR5T64
 BANNER_KEYWORDS = [
     "click here", "twitter", "discord", "featured teams", "replica code",
     "source", "note:", "dm us", "latest updates", "copypasta", "team id",
-    "team description", "full name", "pokemon text", "extracted", "owner"
+    "team description", "full name", "pokemon text", "extracted", "owner",
+    "http", "www", ".com"
 ]
 
 def es_texto_invalido(val):
-    v = str(val).strip().lower()
-    if not v or v in ['nan', 'none', '0', 'yes', 'no', 'true', 'false', '✔', 'x', '-']:
+    v = str(val).strip()
+    if not v or v.lower() in ['nan', 'none', '0', 'yes', 'no', 'true', 'false', '✔', 'x', '-', 'sin objeto']:
         return True
+    if re.match(r'^[A-Z0-9]{5,8}$', v) and not any(c.islower() for c in v):
+        return True
+    v_low = v.lower()
     for kw in BANNER_KEYWORDS:
-        if kw in v:
+        if kw in v_low:
             return True
-    if len(v) > 35 or "http" in v or "x.com" in v:
+    if len(v) > 30:
         return True
     return False
 
@@ -164,7 +168,7 @@ def parsear_pokepaste_estricto(url_paste):
 def procesar_equipos_rapido(_dict_dfs):
     equipos = []
     for nombre_pestaña, df in _dict_dfs.items():
-        # La estructura empieza en la fila 4 (índice 3 en Pandas)
+        # Fila 4 en adelante (índice 3 en Pandas)
         df_equipos = df.iloc[3:] if len(df) > 3 else df
         for idx_fila, row in df_equipos.iterrows():
             valores_fila = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() != '']
@@ -176,35 +180,39 @@ def procesar_equipos_rapido(_dict_dfs):
             for val in valores_fila:
                 if "pokepast.es" in val or "pastebin" in val:
                     pokepaste = val
-                elif re.match(r'^[A-Z0-9]{6}$', val) or (val.startswith('MB') and len(val) >= 5):
+                elif re.match(r'^[A-Z0-9]{5,8}$', val) and not any(c.islower() for c in val):
                     if not es_texto_invalido(val):
                         replica_code = val
 
-            # Columna H corresponde al índice 7 de Pandas (A=0, B=1, C=2, D=3, E=4, F=5, G=6, H=7)
-            # Los pokémon y objetos están intercalados cada 3 columnas a partir de H4 (índice 7)
-            integrantes_excel = []
-            indices_columnas = [7, 10, 13, 16, 19, 22]  # H, K, N, Q, T, W (cada 3 columnas)
-            
-            for idx_col in indices_columnas:
-                if idx_col < len(row):
-                    poke_val = str(row.iat[idx_col]).strip() if pd.notna(row.iat[idx_col]) else ""
-                    # El objeto suele estar justo al lado (en la columna siguiente o a 1-2 columnas de separación)
-                    obj_val = "Sin objeto"
-                    if idx_col + 1 < len(row):
-                        posible_obj = str(row.iat[idx_col + 1]).strip()
-                        if pd.notna(posible_obj) and posible_obj != "" and not es_texto_invalido(posible_obj):
-                            obj_val = posible_obj
+            # 1. POKÉMON: Columnas AL hasta AQ (Índices 37 al 42)
+            indices_pokes = [37, 38, 39, 40, 41, 42]
+            # 2. OBJETOS: Columnas H, K, N, Q, T, W (Índices 7, 10, 13, 16, 19, 22)
+            indices_objs = [7, 10, 13, 16, 19, 22]
 
-                    if poke_val and not es_texto_invalido(poke_val):
-                        integrantes_excel.append({
-                            'pokemon': poke_val,
-                            'objeto': obj_val,
-                            'naturaleza': 'Cargando...',
-                            'habilidad': 'Cargando...',
-                            'movimientos': [],
-                            'clean_poke': re.sub(r'[^a-z0-9]', '', poke_val.lower()),
-                            'clean_obj': re.sub(r'[^a-z0-9]', '', obj_val.lower())
-                        })
+            integrantes_excel = []
+            
+            for i in range(6):
+                idx_p = indices_pokes[i]
+                idx_o = indices_objs[i]
+
+                poke_val = str(row.iat[idx_p]).strip() if idx_p < len(row) and pd.notna(row.iat[idx_p]) else ""
+                obj_val = str(row.iat[idx_o]).strip() if idx_o < len(row) and pd.notna(row.iat[idx_o]) else "Sin objeto"
+
+                if not poke_val or es_texto_invalido(poke_val):
+                    continue
+
+                if es_texto_invalido(obj_val):
+                    obj_val = "Sin objeto"
+
+                integrantes_excel.append({
+                    'pokemon': poke_val,
+                    'objeto': obj_val,
+                    'naturaleza': 'Cargando...',
+                    'habilidad': 'Cargando...',
+                    'movimientos': [],
+                    'clean_poke': re.sub(r'[^a-z0-9]', '', poke_val.lower()),
+                    'clean_obj': re.sub(r'[^a-z0-9]', '', obj_val.lower())
+                })
 
             if not integrantes_excel:
                 continue
@@ -370,7 +378,7 @@ with tab_buscar:
 # ==================== PESTAÑA 2: AÑADIR EQUIPO ====================
 with tab_anadir:
     st.subheader("📥 Añadir Nuevo Equipo")
-    st.markdown("Introduce los **6 Pokémon junto a sus respectivos Objetos ordenados**, o impórtalos automáticamente desde un enlace de Pokepaste.")
+    st.markdown("Introduce los **6 Pokémon** y sus respectivos **Objetos ordenados**, o impórtalos automáticamente desde Pokepaste.")
     
     with st.expander("🔗 Opción Alternativa: Importar automáticamente desde Pokepaste"):
         paste_url_in = st.text_input("Enlace de Pokepaste (ej: https://pokepast.es/abcde):")
@@ -401,13 +409,13 @@ with tab_anadir:
     desc_in = st.text_input("📝 Descripción / Torneo:", placeholder="Ej: Top 8 Regional")
     paste_final_url = st.text_input("🔗 Enlace de Pokepaste (Opcional para guardar):")
 
-    st.markdown("### 🔴 Configura los 6 Pokémon y sus Objetos ordenados")
+    st.markdown("### 🔴 Configura los 6 Pokémon (AL-AQ) y sus Objetos (H, K, N, Q, T, W)")
 
     def render_add_slot(slot_num):
         with st.container(border=True):
             st.markdown(f"**Slot {slot_num}**")
-            p_val = st.text_input(f"Pokémon {slot_num}:", key=f"add_p_{slot_num}", placeholder=f"Ej: Incineroar")
-            o_val = st.text_input(f"Objeto {slot_num}:", key=f"add_o_{slot_num}", placeholder=f"Ej: Sitrus Berry")
+            p_val = st.text_input(f"Pokémon {slot_num} (Col. AL-AQ):", key=f"add_p_{slot_num}", placeholder=f"Ej: Incineroar")
+            o_val = st.text_input(f"Objeto {slot_num} (Col. H/K/N/Q/T/W):", key=f"add_o_{slot_num}", placeholder=f"Ej: Sitrus Berry")
             return p_val.strip(), o_val.strip()
 
     acol1, acol2, acol3 = st.columns(3)
