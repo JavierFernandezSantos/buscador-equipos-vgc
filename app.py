@@ -12,7 +12,7 @@ st.image("https://upload.wikimedia.org/wikipedia/commons/thumb/9/98/Internationa
 col_title, col_icon = st.columns([4, 1])
 with col_title:
     st.title("⚔️ Buscador y Comparador de Equipos VGC")
-    st.markdown("Analizador de la base de datos **VGCPastes Repository** con emparejamiento de Objetos y Ataques.")
+    st.markdown("Analizador de la base de datos **VGCPastes Repository** con emparejamiento de Objetos, Ataques y Naturalezas.")
 with col_icon:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=70)
 
@@ -20,7 +20,6 @@ st.divider()
 
 EXCEL_URL = "https://docs.google.com/spreadsheets/d/1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw/export?format=xlsx"
 
-# Banners, avisos y redes sociales a ignorar
 BANNER_KEYWORDS = [
     "click here", "twitter", "discord", "featured teams", "replica code",
     "source", "note:", "dm us", "latest updates", "copypasta", "team id",
@@ -57,7 +56,7 @@ except Exception as e:
     st.sidebar.error(f"❌ Error al conectar con el Excel: {e}")
     st.stop()
 
-# Función para obtener y parsear ataques desde el Pokepaste de forma automatizada
+# 🧠 Extractor automatizado de Pokepaste (Ataques, Naturalezas y Habilidades)
 @st.cache_data(ttl=3600)
 def obtener_detalles_pokepaste(url_paste):
     if not url_paste or "pokepast.es" not in url_paste:
@@ -77,14 +76,26 @@ def obtener_detalles_pokepaste(url_paste):
                     continue
                 primera = lineas[0]
                 nombre = primera.split('@')[0].strip()
+                nombre = re.sub(r'\s*\([MFmf]\)', '', nombre).strip()
                 nombre_clean = re.sub(r'[^a-z0-9]', '', nombre.lower())
-                
+
                 movimientos = []
+                naturaleza = "No especificada"
+                habilidad = "No especificada"
+
                 for l in lineas[1:]:
                     if l.startswith('-'):
                         movimientos.append(l.replace('-', '').strip())
-                
-                detalles[nombre_clean] = movimientos
+                    elif 'Nature' in l:
+                        naturaleza = l.replace('Nature', '').strip()
+                    elif l.startswith('Ability:'):
+                        habilidad = l.replace('Ability:', '').strip()
+
+                detalles[nombre_clean] = {
+                    'movimientos': movimientos,
+                    'naturaleza': naturaleza,
+                    'habilidad': habilidad
+                }
             return detalles
     except Exception:
         pass
@@ -94,7 +105,7 @@ def procesar_equipos(dict_dfs):
     equipos = []
     
     for nombre_pestaña, df in dict_dfs.items():
-        # Comenzar desde la Fila 4 de Excel (índice 3 en Python)
+        # Fila 4 de Excel (Índice 3 en Python)
         df_equipos = df.iloc[3:]
         
         for idx_fila, row in df_equipos.iterrows():
@@ -103,7 +114,7 @@ def procesar_equipos(dict_dfs):
             if not valores_fila:
                 continue
 
-            # 1. Extraer Pokémon (Tomar los últimos 6 de la fila)
+            # 1. Extraer los 6 Pokémon del final
             candidatos_pokes = []
             for val in reversed(valores_fila):
                 if not es_texto_invalido(val) and len(val) > 2:
@@ -137,7 +148,7 @@ def procesar_equipos(dict_dfs):
             # 4. Extraer Objetos
             objetos_fila = [v for v in candidatos_texto[2:] if not re.match(r'^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$', v) and not v.startswith('@')]
 
-            # Emparejar 1 a 1 cada Pokémon con su Objeto por posición
+            # Emparejar 1 a 1 Pokémon con su Objeto
             integrantes = []
             for i, p in enumerate(pokemons_fila):
                 obj = objetos_fila[i] if i < len(objetos_fila) else "Sin objeto"
@@ -163,11 +174,11 @@ def procesar_equipos(dict_dfs):
 equipos_db = procesar_equipos(hojas_cargadas)
 
 # DIAGNÓSTICO EN BARRA LATERAL
-with st.sidebar.expander("🔍 Verificar equipos con emparejamiento", expanded=False):
+with st.sidebar.expander("🔍 Verificar equipos extraídos", expanded=False):
     st.write(f"**Pestañas encontradas:** {list(hojas_cargadas.keys())}")
-    st.write(f"**Total de equipos reales:** {len(equipos_db)}")
+    st.write(f"**Total de equipos:** {len(equipos_db)}")
     if equipos_db:
-        st.write("**Ejemplo de un equipo emparejado:**")
+        st.write("**Ejemplo de estructura de un equipo:**")
         st.json(equipos_db[0])
 
 # --- INTERFAZ DE BÚSQUEDA ---
@@ -248,29 +259,42 @@ if st.button("🔍 Buscar Equipos Coincidentes", type="primary"):
                 with st.expander(f"⭐ [{eq['pestaña']}] Jugador: {eq['owner']} (Excel Fila {eq['excel_row']}) — {n_match}/{len(pokes_usuario)} coincidencia/s", expanded=(n_match >= 2)):
                     c1, c2 = st.columns([2, 1])
                     
-                    # Intentar obtener los ataques del Pokepaste si existe
-                    movimientos_dict = obtener_detalles_pokepaste(eq['pokepaste'])
+                    # Obtener los datos del Pokepaste
+                    pokepaste_data = obtener_detalles_pokepaste(eq['pokepaste'])
                     
                     with c1:
                         st.markdown(f"**👤 Jugador:** `{eq['owner']}` | **📌 Regulación:** `{eq['pestaña']}`")
-                        st.markdown("#### 📋 Vista Previa del Equipo:")
+                        st.markdown("#### 📋 Detalle Individual por Pokémon:")
                         
-                        # Renderizar cada Pokémon con su Objeto y Ataques
+                        # Mostrar cada Pokémon con su Objeto, Naturaleza y Ataques correspondientes
                         for idx, item in enumerate(eq['integrantes'], 1):
                             poke = item['pokemon']
                             obj = item['objeto']
                             poke_clean = item['clean_poke']
                             
-                            # Indicador verde si coincide con la búsqueda
+                            # Marca verde si coincide con lo buscado
                             es_match = any(u in poke_clean or poke_clean in u for u in clean_user)
                             ico = "🟢" if es_match else "⚪"
                             
-                            # Buscar movimientos del pokémon
-                            moves = movimientos_dict.get(poke_clean, [])
+                            # Buscar detalles en el Pokepaste con coincidencia flexible
+                            details = pokepaste_data.get(poke_clean, {})
+                            if not details:
+                                for k, v in pokepaste_data.items():
+                                    if k in poke_clean or poke_clean in k:
+                                        details = v
+                                        break
+                            
+                            moves = details.get('movimientos', [])
+                            nature = details.get('naturaleza', 'No especificada')
+                            ability = details.get('habilidad', 'No especificada')
+                            
                             moves_str = " | ".join([f"`{m}`" for m in moves]) if moves else "*Ver en Pokepaste*"
                             
+                            # Renderizado claro e individual
                             st.markdown(f"{ico} **{idx}. {poke}** @ `{obj}`")
+                            st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;🎭 **Naturaleza:** `{nature}` | 🧬 **Habilidad:** `{ability}`")
                             st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;⚔️ **Ataques:** {moves_str}")
+                            st.markdown("---")
                     
                     with c2:
                         st.markdown("**🎮 Código de Préstamo:**")
