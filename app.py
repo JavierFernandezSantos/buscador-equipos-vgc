@@ -19,29 +19,34 @@ st.divider()
 
 EXCEL_URL = "https://docs.google.com/spreadsheets/d/1axlwmzPA49rYkqXh7zHvAtSP-TKbM0ijGYBPRflLSWw/export?format=xlsx"
 
-# Palabras a ignorar que forman parte de encabezados o metadatos
-HEADER_KEYWORDS = [
-    "team id", "team description", "full name", "pokemon text",
-    "pokepaste", "replica code", "tournament", "rank", "evs",
-    "pokemon text for copypasta", "owner", "notes", "sprite",
-    "item text", "object", "pokemon 1", "pokemon 2", "champions", "extracted"
+# Palabras de banners, avisos o redes sociales a filtrar
+BANNER_KEYWORDS = [
+    "click here", "twitter", "discord", "featured teams", "replica code",
+    "source", "note:", "dm us", "latest updates", "copypasta", "team id",
+    "team description", "full name", "pokemon text", "extracted", "owner"
 ]
 
-def es_invalido(val):
+def es_texto_invalido(val):
     v = str(val).strip().lower()
     if not v or v in ['nan', 'none', '0', 'yes', 'no', 'true', 'false', '✔', 'x', '-']:
         return True
-    return any(kw == v for kw in HEADER_KEYWORDS)
+    for kw in BANNER_KEYWORDS:
+        if kw in v:
+            return True
+    # Descartar textos largos que no son nombres de Pokémon u Objetos
+    if len(v) > 30 or "http" in v or "x.com" in v:
+        return True
+    return False
 
 @st.cache_data(ttl=300)
 def cargar_todas_las_hojas():
     xls = pd.ExcelFile(EXCEL_URL)
-    # Filtrar pestañas que contengan "M - B", "M-B" o "MB"
     hojas_mb = [sheet for sheet in xls.sheet_names if re.search(r'M\s*-\s*B|MB', sheet, re.IGNORECASE)]
     
     dict_dfs = {}
     for sheet in hojas_mb:
-        dict_dfs[sheet] = xls.parse(sheet)
+        # Cargar sin encabezados prefijados para controlar las filas exactamente
+        dict_dfs[sheet] = xls.parse(sheet, header=None)
         
     return dict_dfs
 
@@ -57,16 +62,20 @@ def procesar_equipos(dict_dfs):
     equipos = []
     
     for nombre_pestaña, df in dict_dfs.items():
-        for idx_fila, row in df.iterrows():
+        # EMPEZAR DESDE LA FILA 4 DE EXCEL (Índice 3 en Python)
+        df_equipos = df.iloc[3:]
+        
+        for idx_fila, row in df_equipos.iterrows():
             valores_fila = [str(v).strip() for v in row.values if pd.notna(v) and str(v).strip() != '']
             
             if not valores_fila:
                 continue
 
-            # 1. Extraer Pokémon (Tomar los últimos 6 valores de la fila que no sean URLs ni códigos)
+            # 1. Extraer Pokémon válidos (analizando desde el final de la fila)
             candidatos_pokes = []
             for val in reversed(valores_fila):
-                if not val.startswith('http') and not es_invalido(val) and len(val) > 2:
+                if not es_texto_invalido(val) and len(val) > 2:
+                    # Omitir códigos Switch o Team IDs
                     if not re.match(r'^[A-Z0-9]{6}$', val) and not val.startswith('MB'):
                         candidatos_pokes.append(val)
                 if len(candidatos_pokes) == 6:
@@ -74,44 +83,39 @@ def procesar_equipos(dict_dfs):
             
             pokemons_fila = list(reversed(candidatos_pokes))
             
-            # Descartar la fila si no contiene al menos 1 Pokémon válido
-            if not pokemons_fila or "Pokemon Text for Copypasta" in pokemons_fila:
+            # Si no hay Pokémon reales en la fila, pasar a la siguiente
+            if not pokemons_fila:
                 continue
                 
-            # 2. Extraer Enlace Pokepaste y Código de Préstamo (Ej: J8WYW2)
+            # 2. Extraer Pokepaste y Código de Préstamo
             pokepaste = ""
             replica_code = "No disponible"
             
             for val in valores_fila:
                 if "pokepast.es" in val or "pastebin" in val:
                     pokepaste = val
-                # Detectar código Switch (6 caracteres alfanuméricos en mayúscula como J8WYW2)
                 elif re.match(r'^[A-Z0-9]{6}$', val) or (val.startswith('MB') and len(val) >= 5):
-                    if val not in ['EXTRACTED', 'YES', 'NO']:
+                    if not es_texto_invalido(val):
                         replica_code = val
             
-            # 3. Jugador / Creador y Descripción
-            owner = valores_fila[0] if len(valores_fila) > 0 and not es_invalido(valores_fila[0]) else "Desconocido"
-            description = valores_fila[1] if len(valores_fila) > 1 and not es_invalido(valores_fila[1]) else "Sin descripción"
+            # 3. Extraer Jugador / Creador y Descripción
+            candidatos_texto = [v for v in valores_fila if not es_texto_invalido(v) and v not in pokemons_fila and v != replica_code and v != pokepaste]
             
-            # 4. Extraer Objetos (Búsqueda de items típicos o valores entre el nombre y las URLs)
-            objetos_fila = []
-            for val in valores_fila:
-                if val not in pokemons_fila and val != owner and val != replica_code and val != pokepaste:
-                    if not val.startswith('http') and not es_invalido(val) and len(val) > 2:
-                        # Filtrar cadenas que no coincidan con fechas ni handles de twitter
-                        if not re.match(r'^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$', val) and not val.startswith('@'):
-                            objetos_fila.append(val)
+            owner = candidatos_texto[0] if len(candidatos_texto) > 0 else "Desconocido"
+            description = candidatos_texto[1] if len(candidatos_texto) > 1 else "Sin descripción"
+            
+            # 4. Extraer Objetos
+            objetos_fila = [v for v in candidatos_texto[2:] if not re.match(r'^\d{1,2}\s+[A-Za-z]{3}\s+\d{4}$', v) and not v.startswith('@')]
 
             equipos.append({
                 'pestaña': nombre_pestaña,
-                'team_id': f"Equipo #{idx_fila+1}",
+                'excel_row': idx_fila + 1, # Número de fila real en Excel
                 'owner': owner,
                 'description': description,
                 'pokepaste': pokepaste,
                 'replica_code': replica_code,
                 'pokemons': pokemons_fila,
-                'objetos': objetos_fila[:6], # Limitar a los 6 objetos principales
+                'objetos': objetos_fila[:6],
                 'clean_pokes': [re.sub(r'[^a-z0-9]', '', p.lower()) for p in pokemons_fila]
             })
             
@@ -119,12 +123,12 @@ def procesar_equipos(dict_dfs):
 
 equipos_db = procesar_equipos(hojas_cargadas)
 
-# PANEL DE DIAGNÓSTICO LATERAL
-with st.sidebar.expander("🔍 Verificar equipos extraídos", expanded=False):
+# PANEL DE DIAGNÓSTICO EN BARRA LATERAL
+with st.sidebar.expander("🔍 Verificar equipos extraídos desde Fila 4", expanded=False):
     st.write(f"**Pestañas encontradas:** {list(hojas_cargadas.keys())}")
-    st.write(f"**Total de equipos detectados:** {len(equipos_db)}")
+    st.write(f"**Total de equipos reales detectados:** {len(equipos_db)}")
     if equipos_db:
-        st.write("**Ejemplo de equipo cargado (Datos de Yuta Ishigaki u otro):**")
+        st.write("**Ejemplo del primer equipo REAL (Fila 4):**")
         st.json(equipos_db[0])
 
 # --- INTERFAZ DE BÚSQUEDA ---
@@ -158,7 +162,7 @@ if "Pegar" in modo:
                 continue
             nombre = linea.split('@')[0].strip()
             nombre = re.sub(r'\s*\([MFmf]\)', '', nombre).strip()
-            if nombre and not es_invalido(nombre):
+            if nombre and not es_texto_invalido(nombre):
                 pokes_usuario.append(nombre)
 else:
     pokes_usuario = st.multiselect(
@@ -201,7 +205,7 @@ if st.button("🔍 Buscar Equipos Coincidentes", type="primary"):
                 eq = res['team']
                 n_match = res['coincidencias']
                 
-                with st.expander(f"⭐ [{eq['pestaña']}] Jugador: {eq['owner']} — Coinciden {n_match}/{len(pokes_usuario)} Pokémon", expanded=(n_match >= 2)):
+                with st.expander(f"⭐ [{eq['pestaña']}] Jugador: {eq['owner']} (Excel Fila {eq['excel_row']}) — {n_match}/{len(pokes_usuario)} coincidencia/s", expanded=(n_match >= 2)):
                     c1, c2 = st.columns([2, 1])
                     with c1:
                         st.markdown(f"**👤 Creador / Jugador:** `{eq['owner']}`")
