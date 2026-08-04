@@ -7,15 +7,17 @@ import os
 # Configuración de la página
 st.set_page_config(page_title="Comparador de Equipos VGC", page_icon="🎮", layout="wide")
 
-# Cabecera con Imagen de Pokémon Champions
+# Cabecera con Imagen de Pokémon Champions (detecta logo.jpg, logo.png o enlace de respaldo)
 IMAGE_URL = "https://assets.pokemon.com/static-assets/content-assets/cms2/img/trading-card-game/_articles/champions/pokemon-champions-169.jpg"
 
-if os.path.exists("logo.png"):
+if os.path.exists("logo.jpg"):
+    st.image("logo.jpg", width=380)
+elif os.path.exists("logo.png"):
     st.image("logo.png", width=380)
 else:
     st.image(IMAGE_URL, width=380)
 
-# Titulo flanqueado entre dos Pokéballs (sin espadas ni 'Buscador')
+# Título flanqueado únicamente entre dos Pokéballs (sin icono de espadas ni la palabra Buscador)
 col_left, col_title, col_right = st.columns([1, 8, 1])
 
 with col_left:
@@ -68,7 +70,7 @@ except Exception as e:
     st.sidebar.error(f"❌ Error al conectar con el Excel: {e}")
     st.stop()
 
-# 🧠 PARSEADOR ESTRICTO DE POKEPASTE (Máximo 4 ataques por Pokémon)
+# Parseador estricto de Pokepaste (Máximo 4 ataques por Pokémon)
 @st.cache_data(ttl=3600)
 def parsear_pokepaste_estricto(url_paste):
     if not url_paste or "pokepast.es" not in url_paste:
