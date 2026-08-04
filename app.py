@@ -20,7 +20,7 @@ with col_left:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 with col_title:
     st.title("Comparador y Gestor de Equipos VGC")
-    st.markdown("Busca coincidencia por **Pokémon, Objetos y Varios Ataques**, o añade nuevos equipos vía Pokepaste.")
+    st.markdown("Busca coincidencia por **Pokémon (6 Slots), Objetos y Varios Ataques**, o añade nuevos equipos vía Pokepaste.")
 with col_right:
     st.image("https://raw.githubusercontent.com/PokeAPI/sprites/master/sprites/items/poke-ball.png", width=65)
 
@@ -215,18 +215,35 @@ with tab_buscar:
     for eq in equipos_db:
         for item in eq['integrantes_excel']:
             todos_pokes_set.add(item['pokemon'])
-    lista_todos_pokes = sorted(list(todos_pokes_set))
+    lista_todos_pokes = ["-- Ninguno / Seleccionar --"] + sorted(list(todos_pokes_set))
 
-    modo = st.radio("Selecciona el método de búsqueda de Pokémon:", ["📋 Buscar en lista desplegable (Escribe para autocompletar)", "✍️ Pegar texto directo"], horizontal=True)
+    modo = st.radio("Selecciona el método de búsqueda de Pokémon:", ["📋 6 Desplegables de Pokémon (Slots 1 a 6)", "✍️ Pegar texto directo"], horizontal=True)
 
     pokes_usuario = []
-    if "lista" in modo:
-        pokes_usuario = st.multiselect(
-            "Escribe el nombre del Pokémon (ej. 'Chari') y selecciona de 1 a 6:",
-            options=lista_todos_pokes,
-            max_selections=6,
-            placeholder="Empieza a escribir el nombre del Pokémon..."
-        )
+
+    if "6 Desplegables" in modo:
+        st.markdown("##### 🔴 Elige tus Pokémon en las 6 casillas:")
+        col1, col2, col3 = st.columns(3)
+        col4, col5, col6 = st.columns(3)
+
+        with col1:
+            p1 = st.selectbox("Pokémon 1:", options=lista_todos_pokes, key="slot_1")
+        with col2:
+            p2 = st.selectbox("Pokémon 2:", options=lista_todos_pokes, key="slot_2")
+        with col3:
+            p3 = st.selectbox("Pokémon 3:", options=lista_todos_pokes, key="slot_3")
+
+        with col4:
+            p4 = st.selectbox("Pokémon 4:", options=lista_todos_pokes, key="slot_4")
+        with col5:
+            p5 = st.selectbox("Pokémon 5:", options=lista_todos_pokes, key="slot_5")
+        with col6:
+            p6 = st.selectbox("Pokémon 6:", options=lista_todos_pokes, key="slot_6")
+
+        for p in [p1, p2, p3, p4, p5, p6]:
+            if p and p != "-- Ninguno / Seleccionar --":
+                pokes_usuario.append(p)
+
     else:
         user_text = st.text_area("Pega aquí tu equipo o nombres (un Pokémon por línea):", height=140, placeholder="Incineroar\nArchaludon\nPelipper")
         if user_text:
@@ -239,15 +256,15 @@ with tab_buscar:
                 if nombre and not es_texto_invalido(nombre):
                     pokes_usuario.append(nombre)
 
-    # NUEVO: Búsqueda por 1 o VARIOS Ataques/Movimientos
+    # Búsqueda por Varios Ataques/Movimientos
     ataque_usuario = st.text_input(
         "⚔️ Filtrar por uno o varios Ataques (separados por comas):", 
-        placeholder="Ejemplo: Tailwind, Protect, Trick Room, Heat Wave"
+        placeholder="Ejemplo: Tailwind, Protect, Trick Room"
     )
 
     if st.button("🔍 Buscar Equipos Coincidentes", type="primary"):
         if not pokes_usuario and not ataque_usuario.strip():
-            st.warning("⚠️ Selecciona al menos un Pokémon o escribe al menos un ataque para buscar.")
+            st.warning("⚠️ Selecciona al menos un Pokémon en alguna casilla o escribe un ataque.")
         else:
             equipos_a_buscar = equipos_db
             if regulacion_sel != "Todas las Regulaciones (M-B)":
@@ -255,7 +272,7 @@ with tab_buscar:
                 
             clean_user = [re.sub(r'[^a-z0-9]', '', p.lower()) for p in pokes_usuario]
             
-            # Procesar lista de ataques buscados
+            # Ataques
             ataques_buscados_raw = [a.strip() for a in ataque_usuario.split(',') if a.strip()]
             ataques_clean = [re.sub(r'[^a-z0-9]', '', a.lower()) for a in ataques_buscados_raw]
             
@@ -279,7 +296,6 @@ with tab_buscar:
                                 for m in poke.get('movimientos', []):
                                     movs_equipo.append(re.sub(r'[^a-z0-9]', '', m.lower()))
                             
-                            # Comprobar si el equipo tiene los ataques buscados
                             for atq in ataques_clean:
                                 if any(atq in m for m in movs_equipo):
                                     coincidencias_ataques += 1
@@ -306,7 +322,7 @@ with tab_buscar:
             st.write(f"### 🎯 Equipos Encontrados ({len(resultados)})")
             
             if not resultados:
-                st.error("No se encontraron equipos que coincidan con la combinación de Pokémon y ataques seleccionados.")
+                st.error("No se encontraron equipos que coincidan con los Pokémon y ataques seleccionados.")
             else:
                 for res in resultados:
                     eq = res['team']
@@ -347,7 +363,6 @@ with tab_buscar:
                             ico = "🟢" if es_match else "⚪"
                             moves_str = " / ".join(moves) if moves else "*Sin ataques cargados*"
                             
-                            # Resaltar ataques que coincidan
                             if ataques_clean and moves:
                                 moves_formatted = []
                                 for m in moves:
